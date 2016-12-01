@@ -203,7 +203,7 @@ bool CWinSystemX11::SetFullScreen(bool fullScreen, RESOLUTION_INFO& res, bool bl
     mode.hz  = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP).fRefreshRate;
     mode.id  = CDisplaySettings::GetInstance().GetResolutionInfo(RES_DESKTOP).strId;
   }
- 
+
   XMode   currmode = g_xrandr.GetCurrentMode(out.name);
   if (!currmode.name.empty())
   {

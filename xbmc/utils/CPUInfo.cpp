@@ -120,7 +120,7 @@ CCPUInfo::CCPUInfo(void)
 
   size_t len = 4;
   std::string cpuVendor;
-  
+
   // The number of cores.
   if (sysctlbyname("hw.activecpu", &m_cpuCount, &len, NULL, 0) == -1)
       m_cpuCount = 1;
@@ -141,7 +141,7 @@ CCPUInfo::CCPUInfo(void)
   len = 512;
   if (sysctlbyname("machdep.cpu.vendor", &buffer, &len, NULL, 0) == 0)
     cpuVendor = buffer;
-  
+
 #endif
   // Go through each core.
   for (int i=0; i<m_cpuCount; i++)
@@ -268,9 +268,9 @@ CCPUInfo::CCPUInfo(void)
   if (m_fProcTemperature == NULL)
     m_fProcTemperature = fopen("/proc/acpi/thermal_zone/TZ0/temperature", "r");
   // read from the new location of the temperature data on new kernels, 2.6.39, 3.0 etc
-  if (m_fProcTemperature == NULL)   
+  if (m_fProcTemperature == NULL)
     m_fProcTemperature = fopen("/sys/class/hwmon/hwmon0/temp1_input", "r");
-  if (m_fProcTemperature == NULL)   
+  if (m_fProcTemperature == NULL)
     m_fProcTemperature = fopen("/sys/class/thermal/thermal_zone0/temp", "r");  // On Raspberry PIs
 
   m_fCPUFreq = fopen ("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq", "r");
@@ -553,7 +553,7 @@ float CCPUInfo::getCPUFrequency()
       return float(cnt.FirstValue);
     }
   }
-  
+
   if (!m_cores.empty())
     return float(m_cores.begin()->second.m_fSpeed);
   else
@@ -599,7 +599,7 @@ bool CCPUInfo::getTemperature(CTemperature& temperature)
 {
   int         value = 0;
   char        scale = 0;
-  
+
 #ifdef TARGET_POSIX
 #if defined(TARGET_DARWIN_OSX)
   value = SMCGetTemperature(SMC_KEY_CPU_TEMP);
@@ -628,23 +628,24 @@ bool CCPUInfo::getTemperature(CTemperature& temperature)
     // procfs is deprecated in the linux kernel, we should move away from
     // using it for temperature data.  It doesn't seem that sysfs has a
     // general enough interface to bother implementing ATM.
-    
+
     rewind(m_fProcTemperature);
     fflush(m_fProcTemperature);
     ret = fscanf(m_fProcTemperature, "temperature: %d %c", &value, &scale);
-    
+
     // read from the temperature file of the new kernels
     if (!ret)
     {
       ret = fscanf(m_fProcTemperature, "%d", &value);
-      value = value / 1000;
+      if ((int)value > 1000)
+        value = value / 1000;
       scale = 'c';
       ret++;
     }
   }
 
   if (ret != 2)
-    return false; 
+    return false;
 #endif
 #endif // TARGET_POSIX
 
@@ -654,7 +655,7 @@ bool CCPUInfo::getTemperature(CTemperature& temperature)
     temperature = CTemperature::CreateFromFahrenheit(value);
   else
     return false;
-  
+
   return true;
 }
 
@@ -709,7 +710,7 @@ bool CCPUInfo::readProcStat(unsigned long long& user, unsigned long long& nice,
         const LONGLONG deltaTotal = coreTotal - curCore.m_total,
                        deltaIdle  = coreIdle - curCore.m_idle;
         const double load = (double(deltaTotal - deltaIdle) * 100.0) / double(deltaTotal);
-        
+
         // win32 has some problems with calculation of load if load close to zero
         curCore.m_fPct = (load < 0) ? 0 : load;
         if (load >= 0 || deltaTotal > 5 * 10 * 1000 * 1000) // do not update (smooth) values for 5 seconds on negative loads

@@ -24,9 +24,9 @@
 #include <assert.h>
 #if defined(TARGET_ANDROID)
   #include "EGLNativeTypeAndroid.h"
-#if defined(HAS_LIBAMCODEC)
-  #include "EGLNativeTypeAmlAndroid.h"
-#endif
+  #if defined(HAS_LIBAMCODEC)
+    #include "EGLNativeTypeAmlAndroid.h"
+  #endif
 #endif
 #if defined(TARGET_RASPBERRY_PI)
   #include "EGLNativeTypeRaspberryPI.h"
@@ -35,8 +35,12 @@
   #include "EGLNativeTypeIMX.h"
 #endif
 #if defined(TARGET_LINUX) && defined(HAS_LIBAMCODEC)
-#include "EGLNativeTypeAmlogic.h"
+  #include "EGLNativeTypeAmlogic.h"
 #endif
+#if defined(TARGET_LINUX) && defined(HAS_HYBRIS)
+  #include "EGLNativeTypeHybris.h"
+#endif
+#include "EGLNativeTypeFbdev.h"
 #include "EGLWrapper.h"
 
 #define CheckError() m_result = eglGetError(); if(m_result != EGL_SUCCESS) CLog::Log(LOGERROR, "EGL error in %s: %x",__FUNCTION__, m_result);
@@ -101,6 +105,10 @@ bool CEGLWrapper::Initialize(const std::string &implementation)
       (nativeGuess = CreateEGLNativeType<CEGLNativeTypeIMX>(implementation))
 #elif defined(TARGET_LINUX) && defined(HAS_LIBAMCODEC)
       (nativeGuess = CreateEGLNativeType<CEGLNativeTypeAmlogic>(implementation))
+#elif defined(TARGET_LINUX) && defined(HAS_HYBRIS)
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeHybris>(implementation))
+#else
+      (nativeGuess = CreateEGLNativeType<CEGLNativeTypeFbdev>(implementation))
 #endif
       )
   {
@@ -422,4 +430,3 @@ bool CEGLWrapper::SurfaceAttrib(EGLDisplay display, EGLSurface surface, EGLint a
   return eglSurfaceAttrib(display, surface, attribute, value);
 }
 #endif
-

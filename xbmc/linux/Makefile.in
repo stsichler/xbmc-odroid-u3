@@ -12,6 +12,7 @@ SRCS += XFileUtils.cpp
 SRCS += XHandle.cpp
 SRCS += XMemUtils.cpp
 SRCS += XTimeUtils.cpp
+SRCS += LinuxV4l2Sink.cpp
 
 SRCS += RBP.cpp
 

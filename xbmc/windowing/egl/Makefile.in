@@ -12,6 +12,10 @@ endif
 ifeq (@USE_IMXVPU@,1)
 SRCS+= EGLNativeTypeIMX.cpp
 endif
+ifeq (@USE_HYBRIS@,1)
+SRCS+= EGLNativeTypeHybris.cpp
+endif
+SRCS+= EGLNativeTypeFbdev.cpp
 SRCS+= EGLWrapper.cpp
 
 LIB = windowing_egl.a

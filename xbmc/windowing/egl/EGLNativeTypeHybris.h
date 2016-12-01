@@ -1,8 +1,8 @@
 #pragma once
 
 /*
- *      Copyright (C) 2011-2013 Team XBMC
- *      http://xbmc.org
+ *      Copyright (C) 2011-2012 Team XBMC
+ *      http://www.xbmc.org
  *
  *  This Program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,33 +20,37 @@
  *
  */
 
-#include <string>
-#include <vector>
-
-#include "EGLNativeType.h"
-#include <linux/fb.h>
-
-#ifndef _FBDEV_WINDOW_H_
-// Define it right here, since some platforms doesn't has fbdev_window.h at all.
-// This will not make it fail on these platforms badly, since it will fail softly anyway on some other init steps.
-#define _FBDEV_WINDOW_H_
-typedef struct fbdev_window
-{
-  unsigned short width;
-  unsigned short height;
-} fbdev_window;
+#if defined(TARGET_HYBRIS)
+#include <hwcomposerwindow/hwcomposer_window.h>
+#include <hardware/hardware.h>
+#include <hardware/hwcomposer.h>
 #endif
 
-class CEGLNativeTypeAmlogic : public CEGLNativeType
+#include "EGLNativeType.h"
+#include "threads/Thread.h"
+
+class HWComposer : public HWComposerNativeWindow
+{
+  private:
+    hwc_layer_1_t *fblayer;
+    hwc_composer_device_1_t *hwcdevice;
+    hwc_display_contents_1_t **mlist;
+  protected:
+    void present(HWComposerNativeWindowBuffer *buffer);
+  public:
+    HWComposer(unsigned int width, unsigned int height, unsigned int format, hwc_composer_device_1_t *device, hwc_display_contents_1_t **mList, hwc_layer_1_t *layer);
+};
+
+class CEGLNativeTypeHybris : public CEGLNativeType
 {
 public:
-  CEGLNativeTypeAmlogic();
-  virtual ~CEGLNativeTypeAmlogic();
-  virtual std::string GetNativeName() const { return "amlogic"; };
+  CEGLNativeTypeHybris();
+  virtual ~CEGLNativeTypeHybris();
+  virtual std::string GetNativeName() const { return "hybris"; };
   virtual bool  CheckCompatibility();
   virtual void  Initialize();
   virtual void  Destroy();
-  virtual int   GetQuirks() { return EGL_QUIRK_NONE; };
+  virtual int   GetQuirks() { return 0; };
 
   virtual bool  CreateNativeDisplay();
   virtual bool  CreateNativeWindow();
@@ -62,17 +66,12 @@ public:
   virtual bool  GetPreferredResolution(RESOLUTION_INFO *res) const;
 
   virtual bool  ShowWindow(bool show);
-
-protected:
-  bool SetDisplayResolution(const char *resolution);
-
+#if defined(TARGET_HYBRIS)
 private:
-  void SetFramebufferResolution(const RESOLUTION_INFO &res) const;
-  void SetFramebufferResolution(int width, int height) const;
-  void FreeScale(bool state);
-  void DealWithScale(const RESOLUTION_INFO &res);
-  void SetScreenScale(int width, int height, bool state);
-  bool IsHdmiConnected() const;
-
-  std::string m_framebuffer_name;
+  hw_module_t                *m_hwcModule;
+  hwc_display_contents_1_t   **m_bufferList;
+  hwc_composer_device_1_t    *m_hwcDevicePtr;
+  HWComposerNativeWindow     *m_hwNativeWindow;
+  ANativeWindow              *m_swNativeWindow;
+#endif
 };
