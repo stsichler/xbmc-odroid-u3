@@ -5,6 +5,7 @@ set(SOURCES ConvUtils.cpp
             FDEventMonitor.cpp
             LinuxResourceCounter.cpp
             LinuxTimezone.cpp
+            LinuxV4l2Sink.cpp
             PosixMountProvider.cpp
             RBP.cpp
             XFileUtils.cpp
@@ -20,6 +21,7 @@ set(HEADERS ConvUtils.h
             FDEventMonitor.h
             LinuxResourceCounter.h
             LinuxTimezone.h
+            LinuxV4l2Sink.h
             PlatformDefs.h
             PlatformInclude.h
             PosixMountProvider.h

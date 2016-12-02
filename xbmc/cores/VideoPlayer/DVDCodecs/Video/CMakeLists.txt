@@ -16,6 +16,11 @@ if(AML_FOUND)
                       DVDVideoCodecAmlogic.h)
 endif()
 
+if(ENABLE_MFC)
+  list(APPEND SOURCES DVDVideoCodecMFC.cpp)
+  list(APPEND HEADERS DVDVideoCodecMFC.h)
+endif()
+
 if(OPENMAX_FOUND)
   list(APPEND SOURCES DVDVideoCodecOpenMax.cpp
                       OpenMax.cpp

@@ -1,9 +1,11 @@
 if(OPENGLES_FOUND OR AML_FOUND OR MMAL_FOUND)
-  set(SOURCES EGLWrapper.cpp)
+  set(SOURCES EGLWrapper.cpp
+              EGLNativeTypeFbdev.cpp)
 
   set(HEADERS EGLNativeType.h
               EGLQuirks.h
-              EGLWrapper.h)
+              EGLWrapper.h
+              EGLNativeTypeFbdev.h)
 endif()
 
 if(OPENGLES_FOUND)
