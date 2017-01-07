@@ -1,4 +1,4 @@
-if(OPENGLES_FOUND OR AML_FOUND OR MMAL_FOUND)
+if(OPENGLES_FOUND OR AML_FOUND OR IMX_FOUND OR MMAL_FOUND)
   set(SOURCES EGLWrapper.cpp
               EGLNativeTypeFbdev.cpp)
 
@@ -30,6 +30,11 @@ endif()
 if(MMAL_FOUND)
   list(APPEND SOURCES EGLNativeTypeRaspberryPI.cpp)
   list(APPEND HEADERS EGLNativeTypeRaspberryPI.h)
+endif()
+
+if(IMX_FOUND)
+  list(APPEND SOURCES EGLNativeTypeIMX.cpp)
+  list(APPEND HEADERS EGLNativeTypeIMX.h)
 endif()
 
 if(SOURCES)
