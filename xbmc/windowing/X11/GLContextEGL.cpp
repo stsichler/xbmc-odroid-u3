@@ -30,6 +30,10 @@
   #include <GL/glu.h>
   #include <GL/glext.h>
 #elif HAS_GLES == 2
+  // always define GL_GLEXT_PROTOTYPES before include gl headers
+  #if !defined(GL_GLEXT_PROTOTYPES)
+    #define GL_GLEXT_PROTOTYPES
+  #endif
   #include <GLES2/gl2.h>
   #include <GLES2/gl2ext.h>
 #endif
