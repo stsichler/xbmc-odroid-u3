@@ -44,6 +44,8 @@ CDVDVideoCodecMFC::CDVDVideoCodecMFC(CProcessInfo &processInfo) : CDVDVideoCodec
   m_Buffer = NULL;
   m_BufferNowOnScreen = NULL;
 
+  m_droppedFrames = 0;
+
   memzero(m_videoBuffer);
 
 }
@@ -209,6 +211,7 @@ bool CDVDVideoCodecMFC::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   m_BufferNowOnScreen->iIndex = -1;
   m_bVideoConvert = false;
   m_bDropPictures = false;
+  m_droppedFrames = 0;
   memzero(m_videoBuffer);
 
   if (!OpenDevices()) {
@@ -436,6 +439,11 @@ bool CDVDVideoCodecMFC::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   m_BufferNowOnScreen->iIndex = -1;
   m_bCodecHealthy = true;
 
+  m_processInfo.SetVideoDecoderName(m_name, true);
+  m_processInfo.SetVideoDimensions(resultVideoWidth, resultVideoHeight);
+  m_processInfo.SetVideoDeintMethod("hardware");
+  m_processInfo.SetVideoPixelFormat("YUV 4:2:0");
+
   CLog::Log(LOGNOTICE, "%s::%s - MFC Setup succesfull (%dx%d, linesize %d, format 0x%x), start streaming", CLASSNAME, __func__, resultVideoWidth, resultVideoHeight, resultLineSize, finalFormat);
 
   return true;
@@ -508,6 +516,7 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
       CLog::Log(LOGWARNING, "%s::%s - Dropping frame with index %d", CLASSNAME, __func__, m_Buffer->iIndex);
       // Queue it back to MFC CAPTURE since we are in an underrun condition
       m_MFCCapture->PushBuffer(m_Buffer);
+      m_droppedFrames++;
       return (VC_DROPPED | VC_BUFFER);
     }
 
@@ -549,6 +558,15 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
   // Picture is finally ready to be processed further and more info can be enqueued
   return (VC_PICTURE | VC_BUFFER);
 
+}
+
+bool CDVDVideoCodecMFC::GetCodecStats(double &pts, int &droppedFrames, int &skippedPics) {
+  pts = m_videoBuffer.pts;
+  droppedFrames = m_droppedFrames;
+  skippedPics = 0;
+  m_droppedFrames = 0;
+
+  return true;
 }
 
 void CDVDVideoCodecMFC::Reset() {
