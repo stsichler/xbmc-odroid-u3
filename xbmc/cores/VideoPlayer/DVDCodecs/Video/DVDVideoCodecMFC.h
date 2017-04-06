@@ -61,6 +61,7 @@ protected:
   DVDVideoPicture   m_videoBuffer;
 
   int m_droppedFrames;
+  double m_codecPts;
 
   bool OpenDevices();
 };

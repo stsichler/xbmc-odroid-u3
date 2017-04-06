@@ -45,6 +45,7 @@ CDVDVideoCodecMFC::CDVDVideoCodecMFC(CProcessInfo &processInfo) : CDVDVideoCodec
   m_BufferNowOnScreen = NULL;
 
   m_droppedFrames = 0;
+  m_codecPts = DVD_NOPTS_VALUE;
 
   memzero(m_videoBuffer);
 
@@ -212,6 +213,7 @@ bool CDVDVideoCodecMFC::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   m_bVideoConvert = false;
   m_bDropPictures = false;
   m_droppedFrames = 0;
+  m_codecPts = DVD_NOPTS_VALUE;
   memzero(m_videoBuffer);
 
   if (!OpenDevices()) {
@@ -516,6 +518,8 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
       CLog::Log(LOGWARNING, "%s::%s - Dropping frame with index %d", CLASSNAME, __func__, m_Buffer->iIndex);
       // Queue it back to MFC CAPTURE since we are in an underrun condition
       m_MFCCapture->PushBuffer(m_Buffer);
+      long longPts[2] = { m_Buffer->timeStamp.tv_sec, m_Buffer->timeStamp.tv_usec };
+      m_codecPts = *((double*)&longPts[0]);
       m_droppedFrames++;
       return (VC_DROPPED | VC_BUFFER);
     }
@@ -547,7 +551,7 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
   m_videoBuffer.data[0]         = (BYTE*)m_Buffer->cPlane[0];
   m_videoBuffer.data[1]         = (BYTE*)m_Buffer->cPlane[1];
   m_videoBuffer.data[2]         = (BYTE*)m_Buffer->cPlane[2];
-  m_videoBuffer.pts             = *((double*)&longPts[0]);
+  m_videoBuffer.pts             = m_codecPts = *((double*)&longPts[0]);
 
   std::swap(m_Buffer, m_BufferNowOnScreen);
 
@@ -561,7 +565,7 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
 }
 
 bool CDVDVideoCodecMFC::GetCodecStats(double &pts, int &droppedFrames, int &skippedPics) {
-  pts = m_videoBuffer.pts;
+  pts = m_codecPts;
   droppedFrames = m_droppedFrames;
   skippedPics = 0;
   m_droppedFrames = 0;
@@ -570,6 +574,9 @@ bool CDVDVideoCodecMFC::GetCodecStats(double &pts, int &droppedFrames, int &skip
 }
 
 void CDVDVideoCodecMFC::Reset() {
+
+  m_droppedFrames = 0;
+  m_codecPts = DVD_NOPTS_VALUE;
 
   if (m_bCodecHealthy) {
     CLog::Log(LOGDEBUG, "%s::%s - Codec Reset requested, but codec is healthy, doing soft-flush", CLASSNAME, __func__);
