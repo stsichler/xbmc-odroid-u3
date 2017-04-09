@@ -516,11 +516,11 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
 
     if (m_bDropPictures) {
       CLog::Log(LOGWARNING, "%s::%s - Dropping frame with index %d", CLASSNAME, __func__, m_Buffer->iIndex);
-      // Queue it back to MFC CAPTURE since we are in an underrun condition
-      m_MFCCapture->PushBuffer(m_Buffer);
       long longPts[2] = { m_Buffer->timeStamp.tv_sec, m_Buffer->timeStamp.tv_usec };
       m_codecPts = *((double*)&longPts[0]);
       m_droppedFrames++;
+      // Queue it back to MFC CAPTURE since we are in an underrun condition
+      m_MFCCapture->PushBuffer(m_Buffer);
       return (VC_DROPPED | VC_BUFFER);
     }
 
