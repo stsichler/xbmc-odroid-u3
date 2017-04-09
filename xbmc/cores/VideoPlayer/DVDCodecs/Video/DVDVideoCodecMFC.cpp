@@ -70,7 +70,7 @@ bool CDVDVideoCodecMFC::OpenDevices() {
         char sysname[64];
         char drivername[32];
         char target[1024];
-        int ret;
+        ssize_t ret;
 
         snprintf(sysname, 64, "/sys/class/video4linux/%s", ent->d_name);
         snprintf(name, 64, "/sys/class/video4linux/%s/name", ent->d_name);
@@ -195,8 +195,8 @@ bool CDVDVideoCodecMFC::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   struct V4l2SinkBuffer sinkBuffer;
   V4l2Device *finalSink = NULL;
   int finalFormat = -1;
-  int resultVideoWidth;
-  int resultVideoHeight;
+  unsigned int resultVideoWidth;
+  unsigned int resultVideoHeight;
   int resultLineSize;
   unsigned int extraSize = 0;
   uint8_t *extraData = NULL;
@@ -290,7 +290,6 @@ bool CDVDVideoCodecMFC::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
       break;
     default:
       return false;
-      break;
   }
   fmt.fmt.pix_mp.plane_fmt[0].sizeimage = BUFFER_SIZE;
   // Set encoded format
@@ -473,7 +472,7 @@ int CDVDVideoCodecMFC::Decode(BYTE* pData, int iSize, double dts, double pts) {
 
   if(pData) {
     int demuxer_bytes = iSize;
-    uint8_t *demuxer_content = pData;
+    BYTE *demuxer_content = pData;
 
     if(m_bVideoConvert) {
       m_converter.Convert(demuxer_content, demuxer_bytes);
