@@ -123,7 +123,7 @@ bool CDVDVideoCodecAmlogic::Open(CDVDStreamInfo &hints, CDVDCodecOptions &option
       // under streamers can have issues when seeking.
       if (m_hints.extradata && *(uint8_t*)m_hints.extradata == 1)
       {
-        m_bitstream = new CBitstreamConverter;
+        m_bitstream = new CBitstreamConverter();
         m_bitstream->Open(m_hints.codec, (uint8_t*)m_hints.extradata, m_hints.extrasize, true);
         // make sure we do not leak the existing m_hints.extradata
         free(m_hints.extradata);
