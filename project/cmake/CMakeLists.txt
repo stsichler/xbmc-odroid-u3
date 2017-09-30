@@ -56,6 +56,7 @@ if(UNIX)
     option(ENABLE_X11         "Enable X11 support?" ON)
     option(ENABLE_AML         "Enable AML?" OFF)
     option(ENABLE_IMX         "Enable IMX?" OFF)
+    option(ENABLE_HYBRIS      "Enable libhybris?" OFF)
   endif()
 endif()
 # System options
@@ -118,6 +119,11 @@ endif()
 set(optional_deps LCMS2 MicroHttpd MySqlClient SSH XSLT
                   Alsa UDEV DBus Avahi SmbClient CCache
                   PulseAudio VDPAU VAAPI Bluetooth CAP)
+
+# Add libhybris if needed
+if(ENABLE_HYBRIS)
+  list(APPEND optional_deps Hybris)
+endif()
 
 # Required, dyloaded deps
 set(required_dyload Curl ASS)

@@ -8,6 +8,10 @@ if(OPENGLES_FOUND OR AML_FOUND OR IMX_FOUND OR MMAL_FOUND)
               EGLNativeTypeFbdev.h)
 endif()
 
+if(HYBRIS_FOUND)
+  list(APPEND SOURCES EGLNativeTypeHybris.cpp)
+endif()
+
 if(OPENGLES_FOUND)
   list(APPEND SOURCES WinSystemEGL.cpp)
   list(APPEND HEADERS WinSystemEGL.h)
