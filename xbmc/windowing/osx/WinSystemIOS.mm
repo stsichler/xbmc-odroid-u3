@@ -72,7 +72,6 @@ CWinSystemIOS::CWinSystemIOS() : CWinSystemBase()
 {
   m_eWindowSystem = WINDOW_SYSTEM_IOS;
 
-  m_iVSyncErrors = 0;
   m_bIsBackgrounded = false;
   m_pDisplayLink = new CADisplayLinkWrapper;
   m_pDisplayLink->callbackClass = [[IOSDisplayLinkCallback alloc] init];
@@ -437,7 +436,6 @@ void CWinSystemIOS::SetVSyncImpl(bool enable)
       ((void(*)(int))eglSwapInterval)( 1 ) ;
     }
   #endif
-  m_iVSyncMode = 10;
 }
 
 void CWinSystemIOS::ShowOSMouse(bool show)
