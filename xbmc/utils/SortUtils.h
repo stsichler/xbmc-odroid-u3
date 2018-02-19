@@ -223,6 +223,7 @@ private:
   static const SortPreparator& getPreparator(SortBy sortBy);
   static Sorter getSorter(SortOrder sortOrder, SortAttribute attributes);
   static SorterIndirect getSorterIndirect(SortOrder sortOrder, SortAttribute attributes);
+  static bool GetDatabaseResults(const MediaType &mediaType, const FieldList &fields, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results);
 
   static std::map<SortBy, SortPreparator> m_preparators;
   static std::map<SortBy, Fields> m_sortingFields;
