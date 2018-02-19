@@ -208,6 +208,7 @@ bool CRenderSystemGLES::BeginRender()
   if (!m_bRenderCreated)
     return false;
 
+  glFinish();
   return true;
 }
 
