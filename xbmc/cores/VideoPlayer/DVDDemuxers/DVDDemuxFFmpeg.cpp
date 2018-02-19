@@ -1513,7 +1513,11 @@ CDemuxStream* CDVDDemuxFFmpeg::AddStream(int streamIdx)
     if (!langTag)
     {
       // only for avi audio streams
+#if LIBAVFORMAT_VERSION_MAJOR > 57 || LIBAVFORMAT_VERSION_MINOR >= 41
       if ((strcmp(m_pFormatContext->iformat->name, "avi") == 0) && (pStream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO))
+#else
+      if ((strcmp(m_pFormatContext->iformat->name, "avi") == 0) && (pStream->codec->codec_type == AVMEDIA_TYPE_AUDIO))
+#endif//LIBAVFORMAT_VERSION_MAJOR > 57 || LIBAVFORMAT_VERSION_MINOR >= 41
       {
         // only defined for streams 1 to 9
         if((streamIdx > 0) && (streamIdx < 10))
@@ -1791,11 +1795,19 @@ unsigned int CDVDDemuxFFmpeg::HLSSelectProgram()
     {
       int idx = m_pFormatContext->programs[i]->stream_index[j];
       AVStream* pStream = m_pFormatContext->streams[idx];
+#if LIBAVFORMAT_VERSION_MAJOR > 57 || LIBAVFORMAT_VERSION_MINOR >= 41
       if (pStream && pStream->codecpar &&
           pStream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
       {
         strRes = pStream->codecpar->width * pStream->codecpar->height;
       }
+#else
+      if (pStream && pStream->codec &&
+          pStream->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+      {
+        strRes = pStream->codec->width * pStream->codec->height;
+      }
+#endif// LIBAVFORMAT_VERSION_MAJOR > 57 || LIBAVFORMAT_VERSION_MINOR >= 41
     }
 
     if (strRes < selectedRes && selectedBitrate < bandwidth)
