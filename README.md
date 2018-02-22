@@ -36,6 +36,11 @@ computer will become a fully functional multimedia jukebox.
 
 ## Installation
 
+For ODROID U3, configure with:
+```
+./configure --prefix=/usr --enable-gles --enable-codec=mfc --disable-gl --disable-openmax --disable-debug
+```
+
 See [docs/README.xxx] (https://github.com/xbmc/xbmc/tree/master/docs) for specific platform build information.
 
 ## Quick Kodi development links
