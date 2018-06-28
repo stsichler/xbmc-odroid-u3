@@ -5821,7 +5821,7 @@ int CGUIInfoManager::TranslateListItem(const Property &info)
     }
     if (info.name == "art")
       return AddListItemProp(info.param(), LISTITEM_ART_OFFSET);
-    if (info.name == "ratings")
+    if (info.name == "rating")
       return AddListItemProp(info.param(), LISTITEM_RATING_OFFSET);
     if (info.name == "votes")
       return AddListItemProp(info.param(), LISTITEM_VOTES_OFFSET);
@@ -7630,6 +7630,16 @@ bool CGUIInfoManager::GetMultiInfoBool(const GUIInfo &info, int contextWindow, c
         if (info.GetData1())
         {
           CGUIWindow *window = g_windowManager.GetWindow(contextWindow);
+          if (!window)
+          {
+            // try topmost dialog
+            window = g_windowManager.GetWindow(g_windowManager.GetTopMostModalDialogID());
+            if (!window)
+            {
+              // try active window
+              window = g_windowManager.GetWindow(g_windowManager.GetActiveWindow());
+            }
+          }
           bReturn = (window && window->GetID() == static_cast<int>(info.GetData1()));
         }
         else
