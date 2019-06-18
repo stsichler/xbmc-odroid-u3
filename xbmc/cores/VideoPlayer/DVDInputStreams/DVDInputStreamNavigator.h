@@ -174,5 +174,8 @@ protected:
   int m_lastevent;
 
   std::map<int, std::map<int, int64_t>> m_mapTitleChapters;
+
+private:
+  int process_block_DVDNAV_CELL_CHANGE(uint8_t* buf);
 };
 
