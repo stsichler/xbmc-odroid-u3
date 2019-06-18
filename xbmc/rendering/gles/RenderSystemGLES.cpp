@@ -164,6 +164,8 @@ bool CRenderSystemGLES::BeginRender()
   if (!m_bRenderCreated)
     return false;
 
+  glFinish();
+
   bool useLimited = CServiceBroker::GetWinSystem()->UseLimitedColor();
 
   if (m_limitedColorRange != useLimited)
