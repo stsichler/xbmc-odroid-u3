@@ -20,6 +20,9 @@
 #include "Video/AddonVideoCodec.h"
 #include "Video/DVDVideoCodec.h"
 #include "Video/DVDVideoCodecFFmpeg.h"
+#if defined(HAS_MFC)
+#include "Video/DVDVideoCodecMFC.h"
+#endif
 #include "addons/AddonProvider.h"
 #include "cores/VideoPlayer/DVDCodecs/DVDCodecs.h"
 #include "threads/SingleLock.h"
@@ -64,6 +67,11 @@ CDVDVideoCodec* CDVDFactoryCodec::CreateVideoCodec(CDVDStreamInfo &hint, CProces
   }
 
   // platform specifig video decoders
+
+#if defined(HAS_MFC)
+  CDVDVideoCodecMFC::Register();
+#endif
+
   if (!(hint.codecOptions & CODEC_FORCE_SOFTWARE))
   {
     for (auto &codec : m_hwVideoCodecs)

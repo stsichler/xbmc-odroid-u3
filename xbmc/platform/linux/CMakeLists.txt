@@ -1,4 +1,5 @@
 set(SOURCES CPUInfoLinux.cpp
+            LinuxV4l2Sink.cpp
             MemUtils.cpp
             OptionalsReg.cpp
             PlatformLinux.cpp
@@ -6,6 +7,7 @@ set(SOURCES CPUInfoLinux.cpp
             TimeUtils.cpp)
 
 set(HEADERS CPUInfoLinux.h
+            LinuxV4l2Sink.h
             OptionalsReg.h
             PlatformLinux.h
             SysfsPath.h

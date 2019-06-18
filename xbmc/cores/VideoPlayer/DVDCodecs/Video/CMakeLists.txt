@@ -11,6 +11,11 @@ if(NOT ENABLE_EXTERNAL_LIBAV)
   list(APPEND HEADERS DVDVideoPPFFmpeg.h)
 endif()
 
+if(ENABLE_MFC)
+  list(APPEND SOURCES DVDVideoCodecMFC.cpp)
+  list(APPEND HEADERS DVDVideoCodecMFC.h)
+endif()
+
 if(CORE_SYSTEM_NAME STREQUAL windows OR CORE_SYSTEM_NAME STREQUAL windowsstore)
   list(APPEND SOURCES DXVA.cpp)
   list(APPEND HEADERS DXVA.h)
