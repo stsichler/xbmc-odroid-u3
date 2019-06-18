@@ -47,6 +47,12 @@ if(CORE_PLATFORM_NAME_LC STREQUAL rbpi)
   endif()
 endif()
 
+if(PLATFORM MATCHES "odroid-u3")
+  set(ARCH arm)
+  set(NEON True)
+  set(NEON_FLAGS "-fPIC -mcpu=cortex-a9 -mfloat-abi=hard -mfpu=neon")
+endif()
+
 if((CMAKE_BUILD_TYPE STREQUAL Release OR CMAKE_BUILD_TYPE STREQUAL MinSizeRel)
     AND CMAKE_COMPILER_IS_GNUCXX)
   # Make sure we strip binaries in Release build
