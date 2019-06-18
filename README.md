@@ -62,6 +62,11 @@ Kodi is created by users for users and **we welcome every contribution**. There 
 ## Building
 Kodi uses CMake as its building system but instructions are highly dependent on your operating system and target platform. Fortunately **[we've got you covered](docs/README.md)**.
 
+**NOTE:** Configure Kodi for ODROID U3 by
+```
+cmake <sources-path> -DCMAKE_INSTALL_PREFIX=/usr/local -DPLATFORM=odroid-u3 -DENABLE_INTERNAL_FLATBUFFERS=ON -DENABLE_INTERNAL_FMT=ON -DENABLE_MARIADBCLIENT=OFF -DENABLE_GLX=OFF -DENABLE_VAAPI=OFF -DENABLE_VDPAU=OFF -DENABLE_AML=OFF -DENABLE_MFC=ON -DX11_RENDER_SYSTEM=gles -DOPENGLES_gl_LIBRARY=/usr/lib/arm-linux-gnueabihf/libEGL.so
+```
+
 ## Acknowledgements
 Kodi couldn't exist without
 
