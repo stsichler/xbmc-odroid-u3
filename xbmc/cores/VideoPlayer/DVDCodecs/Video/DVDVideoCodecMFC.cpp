@@ -40,10 +40,12 @@
 #define INPUT_BUFFERS      3
 #define OUTPUT_BUFFERS     3
 
-#define KEEP_RENDER_BUFFERS_LOCKED 0 // set to one in order to keep v4l2 buffers locked until rendering has finished.
-                                     // this would be required if rendering directly accesses the v4l2 buffers, but current
-                                     // implementation memcopies the v42l buffer into some intermediate memory before
-                                     // rendering, because direct access of Texture Upload to mmaped v42l buffers is very slow. 
+#define DIRECT_RENDER_4VL2_BUFFERS 0 // set to '1' in order to directly render 4VL2 buffers, ie. do Texture Upload directly
+                                     // from mmap()-ed FIMC output buffer.
+                                     // NOTE: for ODROID-U3, this seems SLOW, so it seems better to memcpy the picture into
+                                     // an intermediate buffer before passing it to rendering. in that case, FIMC is disabled
+                                     // at all, because we do the 64x32 macroblock un-tiling of MFC's native output format in
+                                     // software on-the-fly when copying the picture to the intermediate buffer.
 
 #define memzero(x) memset(&(x), 0, sizeof (x))
 
@@ -53,6 +55,14 @@ union PtsReinterpreter
   long as_long[2];
   double as_double;
 };
+
+#if DIRECT_RENDER_4VL2_BUFFERS
+
+#define FINAL_OUTPUT_BUFFERS (OUTPUT_BUFFERS+3) // rendering may keep up to three buffers locked in that case
+
+#else//DIRECT_RENDER_4VL2_BUFFERS
+
+#define FINAL_OUTPUT_BUFFERS OUTPUT_BUFFERS
 
 // memcpy from src to dst with on-the-fly macroblock decoding
 static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t* src, int src_stride, int height)
@@ -149,6 +159,8 @@ static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t*
   }
 }
 
+#endif//DIRECT_RENDER_4VL2_BUFFERS
+
 CVideoBufferMFC::CVideoBufferMFC(int id) :
   CVideoBuffer(id) {
   m_v4l2buffer.iIndex = -1;
@@ -167,15 +179,20 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
   m_v4l2buffer = *pBuffer;
 
   AVPixelFormat av_pixformat = AV_PIX_FMT_NONE;
-  if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT)
+#if !DIRECT_RENDER_4VL2_BUFFERS
+  if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT) // V4L2_PIX_FMT_NV12M in 64x32 macroblock tiles
     av_pixformat = AV_PIX_FMT_NV12;
-  else if (v4l2_pixelformat == V4L2_PIX_FMT_NV12M)
+  else 
+#endif//!DIRECT_RENDER_4VL2_BUFFERS
+  if (v4l2_pixelformat == V4L2_PIX_FMT_NV12M)
     av_pixformat = AV_PIX_FMT_NV12;
   else if (v4l2_pixelformat == V4L2_PIX_FMT_YUV420M)
     av_pixformat = AV_PIX_FMT_YUV420P;
   else 
       CLog::Log(LOGERROR, "%s::%s - unsupported 4vl2 format %x", CLASSNAME, __func__, v4l2_pixelformat);
-  
+
+#if !DIRECT_RENDER_4VL2_BUFFERS
+
   if (av_pixformat != m_pixFormat || m_width != width || m_height != height) {
 
     for (int i=0; i<YuvImage::MAX_PLANES; ++i) {
@@ -202,12 +219,7 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
     mp_planes[2] = (uint8_t*)((size_t)(mp_planes_unaligned[2]+31)&~31);
   }
 
-  m_pixFormat = av_pixformat;
-  m_width = width;
-  m_height = height;
-
   uint8_t *src, *dst;
-
   if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT) {
     src= (uint8_t*)pBuffer->cPlane[0];
     dst= mp_planes[0];
@@ -240,6 +252,18 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
     for (int y=0; y<height/2; ++y, src+=stride/2, dst+=width/2)
       memcpy(dst, src, width/2);
   }
+
+#else //!DIRECT_RENDER_4VL2_BUFFERS
+
+  mp_planes[0]= (uint8_t*)pBuffer->cPlane[0];
+  mp_planes[1]= (uint8_t*)pBuffer->cPlane[1];
+  mp_planes[2]= (uint8_t*)pBuffer->cPlane[2];
+
+#endif//!DIRECT_RENDER_4VL2_BUFFERS
+
+  m_pixFormat = av_pixformat;
+  m_width = width;
+  m_height = height;
 }
 
 void CVideoBufferMFC::GetPlanes(uint8_t*(&planes)[YuvImage::MAX_PLANES]) {
@@ -298,7 +322,7 @@ CVideoBuffer* CVideoBufferPoolMFC::Get() {
 }
 
 void CVideoBufferPoolMFC::Return(int id) {
-#if KEEP_RENDER_BUFFERS_LOCKED
+#if DIRECT_RENDER_4VL2_BUFFERS
   CSingleLock lock(m_criticalSection);
 
   if (mp_codec && (size_t)id < m_videoBuffers.size() && m_videoBuffers[id]->m_v4l2buffer.iIndex != -1) {
@@ -306,13 +330,13 @@ void CVideoBufferPoolMFC::Return(int id) {
     mp_codec->ReturnBuffer(&m_videoBuffers[id]->m_v4l2buffer);
   }
   m_videoBuffers[id]->m_v4l2buffer.iIndex = -1;
-#endif//KEEP_RENDER_BUFFERS_LOCKED
+#endif//DIRECT_RENDER_4VL2_BUFFERS
 
   m_freeBuffers.push_back(id);
 }
 
 void CVideoBufferPoolMFC::Detach() {
-#if KEEP_RENDER_BUFFERS_LOCKED
+#if DIRECT_RENDER_4VL2_BUFFERS
   CSingleLock lock(m_criticalSection);
 
   // wait up to 0.5 sec until all buffers are released
@@ -331,7 +355,7 @@ void CVideoBufferPoolMFC::Detach() {
       // note: do not push to freeBuffers
     }
   }
-#endif//KEEP_RENDER_BUFFERS_LOCKED
+#endif//DIRECT_RENDER_4VL2_BUFFERS
 
   mp_codec= nullptr;
 }
@@ -526,7 +550,13 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   m_V4l2BufferForNextData.iIndex = -1;
 
-  if (!OpenDevices(V4L2_PIX_FMT_NV12MT /* V4L2_PIX_FMT_NV12M *//* V4L2_PIX_FMT_YUV420M */)) {
+#if DIRECT_RENDER_4VL2_BUFFERS
+  // try to decode to untiled format (with FIMC), because rendering directly accesses buffers
+  if (!OpenDevices(V4L2_PIX_FMT_NV12M /* or V4L2_PIX_FMT_YUV420M */)) { 
+#else//DIRECT_RENDER_4VL2_BUFFERS
+  // try to decode to tiled format (without FIMC), because buffer is copied anyway before rendering
+  if (!OpenDevices(V4L2_PIX_FMT_NV12MT)) {
+#endif//DIRECT_RENDER_4VL2_BUFFERS
     CLog::Log(LOGERROR, "%s::%s - No Exynos MFC Decoder/Converter found", CLASSNAME, __func__);
     return false;
   }
@@ -549,15 +579,18 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   // If converter is present, it is our final sink
   finalSink = m_iConverterHandle ? m_iConverterHandle : m_iDecoderHandle;
 
-  // Test 64x32 TILED NV12 2 Planes Y/CbCr 
-  memzero(fmt);
-  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12MT;
-  if (ioctl(finalSink->device, VIDIOC_TRY_FMT, &fmt) == 0) {
-    m_finalFormat = V4L2_PIX_FMT_NV12MT;
-    msp_buffer_pool->Configure(AV_PIX_FMT_NV12, 0);
+#if !DIRECT_RENDER_4VL2_BUFFERS
+  if (m_finalFormat < 0) {
+    // Test 64x32 TILED NV12 2 Planes Y/CbCr 
+    memzero(fmt);
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12MT;
+    if (ioctl(finalSink->device, VIDIOC_TRY_FMT, &fmt) == 0) {
+      m_finalFormat = V4L2_PIX_FMT_NV12MT;
+      msp_buffer_pool->Configure(AV_PIX_FMT_NV12, 0);
+    }
   }
-
+#endif//!DIRECT_RENDER_4VL2_BUFFERS
   if (m_finalFormat < 0) {
     // Test NV12 2 Planes Y/CbCr 
     memzero(fmt);
@@ -661,7 +694,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   // Initialize MFC Capture.
   // NOTE: a negative value means "allocate min buffer required + abs(val)"
-  if (!m_MFCCapture->Init((!m_iConverterHandle) ? -OUTPUT_BUFFERS : 0)) {
+  if (!m_MFCCapture->Init((!m_iConverterHandle) ? -FINAL_OUTPUT_BUFFERS : 0)) {
     CLog::Log(LOGERROR, "%s::%s MFCCapture init failed", CLASSNAME, __func__);
     return false;
   }
@@ -724,9 +757,8 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
       CLog::Log(LOGERROR, "%s::%s setting FIMCCapture format failed", CLASSNAME, __func__);
       return false;
     }
-    // Init FIMC capture with number of buffers predefined.
-    // NOTE: rendering has up to three of them locked, so we allocate 3 more.
-    if (!m_FIMCCapture->Init(OUTPUT_BUFFERS+3)) {
+    // Init FIMC capture with number of buffers predefined
+    if (!m_FIMCCapture->Init(FINAL_OUTPUT_BUFFERS)) {
       CLog::Log(LOGERROR, "%s::%s FIMCCapture init failed", CLASSNAME, __func__);
       return false;
     }
@@ -993,9 +1025,9 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   pDvdVideoPicture->videoBuffer     =  msp_buffer_pool->Get();
   static_cast<CVideoBufferMFC*>(pDvdVideoPicture->videoBuffer)
     ->Set(&picture, m_finalFormat, m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
-#if !KEEP_RENDER_BUFFERS_LOCKED
+#if !DIRECT_RENDER_4VL2_BUFFERS
   ReturnBuffer(&picture);
-#endif//!KEEP_RENDER_BUFFERS_LOCKED
+#endif//!DIRECT_RENDER_4VL2_BUFFERS
 
   pDvdVideoPicture->pts             = m_codecPts;
   pDvdVideoPicture->dts             = DVD_NOPTS_VALUE;
