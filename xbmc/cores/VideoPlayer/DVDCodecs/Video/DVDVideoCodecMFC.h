@@ -70,7 +70,7 @@ public:
   bool GetCodecStats(double &pts, int &droppedFrames, int &skippedPics);
 
   void Dispose();
-  bool OpenDevices(uint32_t v4l2_pixformat);
+  bool OpenDevices();
   void PumpBuffers();
 
   std::string m_name;
