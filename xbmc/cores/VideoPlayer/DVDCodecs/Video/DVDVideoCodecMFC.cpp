@@ -52,7 +52,7 @@
 
 union PtsReinterpreter
 {
-  long as_long[2];
+  int32_t as_int32[2];
   double as_double;
 };
 
@@ -863,8 +863,8 @@ bool CMFCCodec::AddData(const DemuxPacket &packet) {
 
     PtsReinterpreter ptsconv;
     ptsconv.as_double = pts;
-    m_V4l2BufferForNextData.timeStamp.tv_sec = ptsconv.as_long[0];
-    m_V4l2BufferForNextData.timeStamp.tv_usec = ptsconv.as_long[1];
+    m_V4l2BufferForNextData.timeStamp.tv_sec = ptsconv.as_int32[0];
+    m_V4l2BufferForNextData.timeStamp.tv_usec = ptsconv.as_int32[1];
 
     CSingleLock lock(m_criticalSection);
     if (!m_MFCOutput->PushBuffer(&m_V4l2BufferForNextData)) {
@@ -956,8 +956,8 @@ void CMFCCodec::PumpBuffers() {
     if (m_codecControlFlags & DVD_CODEC_CTRL_DROP) {
       debug_log(LOGDEBUG, "%s::%s - Dropping frame with index %d", CLASSNAME, __func__, picture.iIndex);
       PtsReinterpreter ptsconv;
-      ptsconv.as_long[0] = picture.timeStamp.tv_sec;
-      ptsconv.as_long[1] = picture.timeStamp.tv_usec;
+      ptsconv.as_int32[0] = picture.timeStamp.tv_sec;
+      ptsconv.as_int32[1] = picture.timeStamp.tv_usec;
       m_codecPts = ptsconv.as_double;
       m_droppedFrames++;
       // directly queue it back to MFC CAPTURE for re-usage since we are in an underrun condition
@@ -1017,8 +1017,8 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   }
   
   PtsReinterpreter ptsconv;
-  ptsconv.as_long[0] = picture.timeStamp.tv_sec;
-  ptsconv.as_long[1] = picture.timeStamp.tv_usec;
+  ptsconv.as_int32[0] = picture.timeStamp.tv_sec;
+  ptsconv.as_int32[1] = picture.timeStamp.tv_usec;
   m_codecPts = ptsconv.as_double;
 
   pDvdVideoPicture->SetParams(m_resultFormat);
