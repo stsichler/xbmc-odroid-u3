@@ -389,7 +389,7 @@ CMFCCodec::~CMFCCodec() {
 
 }
 
-bool CMFCCodec::OpenDevices(uint32_t v4l2_pixformat) {
+bool CMFCCodec::OpenDevices() {
   DIR *dir;
 
   if ((dir = opendir ("/sys/class/video4linux/")) != nullptr) {
@@ -442,15 +442,39 @@ bool CMFCCodec::OpenDevices(uint32_t v4l2_pixformat) {
                 strcpy(m_iDecoderHandle->name, drivername);
                 CLog::Log(LOGDEBUG, "%s::%s - MFC Found %s %s", CLASSNAME, __func__, drivername, devname);
                 struct v4l2_format fmt;
+                
                 memzero(fmt);
                 fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-                fmt.fmt.pix_mp.pixelformat = v4l2_pixformat;
+                fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12M;
                 if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
-                  CLog::Log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  CLog::Log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (NV12) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
                   delete m_iConverterHandle;
                   m_iConverterHandle = nullptr;
                   return true;
                 }
+
+                memzero(fmt);
+                fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+                fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
+                if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
+                  CLog::Log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (YUV420) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  delete m_iConverterHandle;
+                  m_iConverterHandle = nullptr;
+                  return true;
+                }
+
+#if !DIRECT_RENDER_4VL2_BUFFERS
+                memzero(fmt);
+                fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+                fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12MT;
+                if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
+                  CLog::Log(LOGDEBUG, "%s::%s - Decoding to 62x32 tiled picture on device %s, disabling converter", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  delete m_iConverterHandle;
+                  m_iConverterHandle = nullptr;
+                  return true;
+                }
+#endif//!DIRECT_RENDER_4VL2_BUFFERS
+
               }
           }
           if (!m_iDecoderHandle)
@@ -550,13 +574,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   m_V4l2BufferForNextData.iIndex = -1;
 
-#if DIRECT_RENDER_4VL2_BUFFERS
-  // try to decode to untiled format (with FIMC), because rendering directly accesses buffers
-  if (!OpenDevices(V4L2_PIX_FMT_NV12M /* or V4L2_PIX_FMT_YUV420M */)) { 
-#else//DIRECT_RENDER_4VL2_BUFFERS
-  // try to decode to tiled format (without FIMC), because buffer is copied anyway before rendering
-  if (!OpenDevices(V4L2_PIX_FMT_NV12MT)) {
-#endif//DIRECT_RENDER_4VL2_BUFFERS
+  if (!OpenDevices()) { 
     CLog::Log(LOGERROR, "%s::%s - No Exynos MFC Decoder/Converter found", CLASSNAME, __func__);
     return false;
   }
@@ -580,7 +598,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   finalSink = m_iConverterHandle ? m_iConverterHandle : m_iDecoderHandle;
 
 #if !DIRECT_RENDER_4VL2_BUFFERS
-  if (m_finalFormat < 0) {
+  if (!m_iConverterHandle && m_finalFormat < 0) {
     // Test 64x32 TILED NV12 2 Planes Y/CbCr 
     memzero(fmt);
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
@@ -808,7 +826,8 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   m_bCodecHealthy = true;
 
-  CLog::Log(LOGNOTICE, "%s::%s - MFC%s Setup successful (%dx%d, linesize %d)", CLASSNAME, __func__, m_iConverterHandle ? "/FIMC":"", m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
+  CLog::Log(LOGNOTICE, "%s::%s - MFC%s Setup successful (format %x, %dx%d, linesize %d)", CLASSNAME, __func__, 
+    m_iConverterHandle ? "/FIMC":"", m_finalFormat, m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
   return true;
 }
 
