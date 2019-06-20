@@ -26,7 +26,11 @@
 #include "utils/CharsetConverter.h"
 #include "utils/StringUtils.h"
 #include "utils/Variant.h"
+#include "utils/log.h"
+#include "dbwrappers/dataset.h"
+#include "DatabaseUtils.h"
 
+#include <sstream>
 #include <algorithm>
 
 std::string ArrayToString(SortAttribute attributes, const CVariant &variant, const std::string &seperator = " / ")
@@ -783,7 +787,7 @@ bool SortUtils::SortFromDataset(const SortDescription &sortDescription, const Me
   if (!DatabaseUtils::GetSelectFields(SortUtils::GetFieldsForSorting(sortDescription.sortBy), mediaType, fields))
     fields.clear();
 
-  if (!DatabaseUtils::GetDatabaseResults(mediaType, fields, dataset, results))
+  if (!SortUtils::GetDatabaseResults(mediaType, fields, dataset, results))
     return false;
 
   SortDescription sorting = sortDescription;
@@ -794,6 +798,98 @@ bool SortUtils::SortFromDataset(const SortDescription &sortDescription, const Me
   }
 
   Sort(sorting, results);
+
+  return true;
+}
+
+bool SortUtils::GetDatabaseResults(const MediaType &mediaType, const FieldList &fields, const std::unique_ptr<dbiplus::Dataset> &dataset, DatabaseResults &results)
+{
+  if (dataset->num_rows() == 0)
+    return true;
+
+  const dbiplus::result_set &resultSet = dataset->get_result_set();
+  unsigned int offset = results.size();
+
+  if (fields.empty())
+  {
+    DatabaseResult result;
+    for (unsigned int index = 0; index < resultSet.records.size(); index++)
+    {
+      result[FieldRow] = index + offset;
+      results.push_back(result);
+    }
+
+    return true;
+  }
+
+  if (resultSet.record_header.size() < fields.size())
+    return false;
+
+  std::vector<int> fieldIndexLookup;
+  fieldIndexLookup.reserve(fields.size());
+  for (FieldList::const_iterator it = fields.begin(); it != fields.end(); ++it)
+    fieldIndexLookup.push_back(DatabaseUtils::GetFieldIndex(*it, mediaType));
+
+  results.reserve(resultSet.records.size() + offset);
+  for (unsigned int index = 0; index < resultSet.records.size(); index++)
+  {
+    DatabaseResult result;
+    result[FieldRow] = index + offset;
+
+    unsigned int lookupIndex = 0;
+    for (FieldList::const_iterator it = fields.begin(); it != fields.end(); ++it)
+    {
+      int fieldIndex = fieldIndexLookup[lookupIndex++];
+      if (fieldIndex < 0)
+        return false;
+
+      std::pair<Field, CVariant> value;
+      value.first = *it;
+      if (!DatabaseUtils::GetFieldValue(resultSet.records[index]->at(fieldIndex), value.second))
+        CLog::Log(LOGWARNING, "GetDatabaseResults: unable to retrieve value of field %s", resultSet.record_header[fieldIndex].name.c_str());
+
+      if (value.first == FieldYear &&
+         (mediaType == MediaTypeTvShow || mediaType == MediaTypeEpisode))
+      {
+        CDateTime dateTime;
+        dateTime.SetFromDBDate(value.second.asString());
+        if (dateTime.IsValid())
+        {
+          value.second.clear();
+          value.second = dateTime.GetYear();
+        }
+      }
+
+      result.insert(value);
+    }
+
+    result[FieldMediaType] = mediaType;
+    if (mediaType == MediaTypeMovie || mediaType == MediaTypeVideoCollection ||
+        mediaType == MediaTypeTvShow || mediaType == MediaTypeMusicVideo)
+      result[FieldLabel] = result.at(FieldTitle).asString();
+    else if (mediaType == MediaTypeEpisode)
+    {
+      std::ostringstream label;
+      label << (int)(result.at(FieldSeason).asInteger() * 100 + result.at(FieldEpisodeNumber).asInteger());
+      label << ". ";
+      label << result.at(FieldTitle).asString();
+      result[FieldLabel] = label.str();
+    }
+    else if (mediaType == MediaTypeAlbum)
+      result[FieldLabel] = result.at(FieldAlbum).asString();
+    else if (mediaType == MediaTypeSong)
+    {
+      std::ostringstream label;
+      label << (int)result.at(FieldTrackNumber).asInteger();
+      label << ". ";
+      label << result.at(FieldTitle).asString();
+      result[FieldLabel] = label.str();
+    }
+    else if (mediaType == MediaTypeArtist)
+      result[FieldLabel] = result.at(FieldArtist).asString();
+
+    results.push_back(result);
+  }
 
   return true;
 }

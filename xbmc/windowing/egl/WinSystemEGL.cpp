@@ -55,7 +55,6 @@ CWinSystemEGL::CWinSystemEGL() : CWinSystemBase()
   m_stereo_mode       = RENDER_STEREO_MODE_OFF;
 
   m_egl               = NULL;
-  m_iVSyncMode        = 0;
   m_delayDispReset    = false;
 }
 
@@ -469,10 +468,8 @@ void CWinSystemEGL::PresentRenderImpl(bool rendered)
 
 void CWinSystemEGL::SetVSyncImpl(bool enable)
 {
-  m_iVSyncMode = enable ? 10:0;
   if (!m_egl->SetVSync(m_display, enable))
   {
-    m_iVSyncMode = 0;
     CLog::Log(LOGERROR, "%s,Could not set egl vsync", __FUNCTION__);
   }
 #ifdef HAS_IMXVPU

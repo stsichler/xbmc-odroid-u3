@@ -224,7 +224,11 @@ CDVDOverlay* CDVDOverlayCodecFFmpeg::GetOverlay()
       return NULL;
 
     AVSubtitleRect rect = *m_Subtitle.rects[m_SubtitleIndex];
+#if LIBAVCODEC_VERSION_MAJOR >= 57
     if (rect.data[0] == NULL)
+#else
+    if (rect.pict.data[0] == NULL)
+#endif//LIBAVCODEC_VERSION_MAJOR >= 57
       return NULL;
 
     m_height = m_pCodecContext->height;
@@ -276,17 +280,29 @@ CDVDOverlay* CDVDOverlayCodecFFmpeg::GetOverlay()
     overlay->source_width  = m_width;
     overlay->source_height = m_height;
 
+#if LIBAVCODEC_VERSION_MAJOR >= 57
     uint8_t* s = rect.data[0];
+#else
+    uint8_t* s = rect.pict.data[0];
+#endif//LIBAVCODEC_VERSION_MAJOR >= 57
     uint8_t* t = overlay->data;
     for(int i=0;i<rect.h;i++)
     {
       memcpy(t, s, rect.w);
+#if LIBAVCODEC_VERSION_MAJOR >= 57
       s += rect.linesize[0];
+#else
+      s += rect.pict.linesize[0];
+#endif//LIBAVCODEC_VERSION_MAJOR >= 57
       t += overlay->linesize;
     }
 
     for(int i=0;i<rect.nb_colors;i++)
+#if LIBAVCODEC_VERSION_MAJOR >= 57
       overlay->palette[i] = Endian_SwapLE32(((uint32_t *)rect.data[1])[i]);
+#else
+      overlay->palette[i] = Endian_SwapLE32(((uint32_t *)rect.pict.data[1])[i]);
+#endif//LIBAVCODEC_VERSION_MAJOR >= 57
 
     m_SubtitleIndex++;
 

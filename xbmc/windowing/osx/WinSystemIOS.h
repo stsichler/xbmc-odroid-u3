@@ -86,7 +86,6 @@ protected:
   void        *m_WorkingContext; // shared EAGLContext opaque
   bool         m_bWasFullScreenBeforeMinimize;
   std::string   m_eglext;
-  int          m_iVSyncErrors;
   CCriticalSection             m_resourceSection;
   std::vector<IDispResource*>  m_resources;
   bool         m_bIsBackgrounded;
