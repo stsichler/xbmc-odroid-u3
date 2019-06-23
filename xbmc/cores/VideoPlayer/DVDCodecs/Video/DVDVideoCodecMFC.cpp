@@ -803,9 +803,9 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   // determine resulting video picture format
 
-  m_resultFormat.color_space     = AVCOL_SPC_UNSPECIFIED;//AVCOL_SPC_BT709;
-  m_resultFormat.color_range     = (fmt.fmt.pix_mp.quantization == V4L2_QUANTIZATION_LIM_RANGE) ? 0 : 1;
-  m_resultFormat.color_primaries = AVCOL_PRI_UNSPECIFIED;//AVCOL_PRI_BT709;
+  m_resultFormat.color_space     = AVCOL_SPC_UNSPECIFIED;
+  m_resultFormat.color_range     = AVCOL_RANGE_UNSPECIFIED;
+  m_resultFormat.color_primaries = AVCOL_PRI_UNSPECIFIED;
   m_resultFormat.colorBits       = 8;
 
   m_resultFormat.iWidth          = crop.c.width;
