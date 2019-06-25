@@ -322,9 +322,9 @@ CVideoBuffer* CVideoBufferPoolMFC::Get() {
 }
 
 void CVideoBufferPoolMFC::Return(int id) {
-#if DIRECT_RENDER_4VL2_BUFFERS
   CSingleLock lock(m_criticalSection);
-
+  
+#if DIRECT_RENDER_4VL2_BUFFERS
   if (mp_codec && (size_t)id < m_videoBuffers.size() && m_videoBuffers[id]->m_v4l2buffer.iIndex != -1) {
     debug_log(LOGDEBUG, "%s::%s - returning buffer with id #%d", CLASSNAME, __func__, id);
     mp_codec->ReturnBuffer(&m_videoBuffers[id]->m_v4l2buffer);
