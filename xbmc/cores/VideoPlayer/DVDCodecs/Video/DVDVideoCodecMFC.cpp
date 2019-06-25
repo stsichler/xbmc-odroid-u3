@@ -573,6 +573,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   msp_buffer_pool.reset(new CVideoBufferPoolMFC(this));
 
   m_V4l2BufferForNextData.iIndex = -1;
+  m_preferAddData = true;
 
   if (!OpenDevices()) { 
     CLog::Log(LOGERROR, "%s::%s - No Exynos MFC Decoder/Converter found", CLASSNAME, __func__);
@@ -875,7 +876,7 @@ bool CMFCCodec::AddData(const DemuxPacket &packet) {
       demuxer_content = m_converter.GetConvertBuffer();
     }
 
-    debug_log(LOGDEBUG, "%s::%s - Filling picture %d", CLASSNAME, __func__, m_V4l2BufferForNextData.iIndex);
+    debug_log(LOGDEBUG, "%s::%s - filling MFCOutput buffer %d", CLASSNAME, __func__, m_V4l2BufferForNextData.iIndex);
 
     memcpy((uint8_t *)m_V4l2BufferForNextData.cPlane[0], demuxer_content, demuxer_bytes);
     m_V4l2BufferForNextData.iBytesUsed[0] = demuxer_bytes;
@@ -920,6 +921,7 @@ void CMFCCodec::Reset() {
     CLog::Log(LOGINFO, "%s::%s - Codec Reset requested, but codec is healthy, doing soft-flush", CLASSNAME, __func__);
     m_MFCOutput->SoftRestart();
     m_MFCCapture->SoftRestart();
+    m_V4l2BufferForNextData.iIndex = -1; // TODO: should we do that here?
   } else {
     CLog::Log(LOGERROR, "%s::%s - Codec Reset. Reinitializing", CLASSNAME, __func__);
     CDVDCodecOptions options;
@@ -943,7 +945,7 @@ void CMFCCodec::PumpBuffers() {
   if (-1 == m_V4l2BufferForNextData.iIndex) {
     CSingleLock lock(m_criticalSection);
     if (m_MFCOutput->GetBuffer(&m_V4l2BufferForNextData)) {
-        debug_log(LOGDEBUG, "%s::%s - Got empty picture %d from MFC Output", CLASSNAME, __func__, picture.iIndex);
+      debug_log(LOGDEBUG, "%s::%s - got empty buffer %d from MFC Output", CLASSNAME, __func__, m_V4l2BufferForNextData.iIndex);
     }
     else if (errno != EAGAIN) {
       m_bCodecHealthy= false;
@@ -960,6 +962,7 @@ void CMFCCodec::PumpBuffers() {
   // re-queue (empty/consumed) buffers from FIMC Output to MFC Capture 
 
   while (m_bCodecHealthy && m_FIMCOutput->DequeueBuffer(&picture)) {
+    debug_log(LOGDEBUG, "%s::%s - requeuing consumed buffer %d from FIMCOutput to MFCCapture", CLASSNAME, __func__, picture.iIndex);
     if (!m_MFCCapture->PushBuffer(&picture)) {
         CLog::Log(LOGERROR, "%s::%s - Cannot requeue picture %d from FIMC to MFC Capture", CLASSNAME, __func__, picture.iIndex);
         m_bCodecHealthy = false; // FIMC unrecoverable error, reset needed
@@ -973,13 +976,14 @@ void CMFCCodec::PumpBuffers() {
   while (m_bCodecHealthy && m_MFCCapture->DequeueBuffer(&picture)) {
 
     if (m_codecControlFlags & DVD_CODEC_CTRL_DROP) {
-      debug_log(LOGDEBUG, "%s::%s - Dropping frame with index %d", CLASSNAME, __func__, picture.iIndex);
+      debug_log(LOGDEBUG, "%s::%s - dropping frame with index %d", CLASSNAME, __func__, picture.iIndex);
       PtsReinterpreter ptsconv;
       ptsconv.as_int32[0] = picture.timeStamp.tv_sec;
       ptsconv.as_int32[1] = picture.timeStamp.tv_usec;
       m_codecPts = ptsconv.as_double;
       m_droppedFrames++;
       // directly queue it back to MFC CAPTURE for re-usage since we are in an underrun condition
+      debug_log(LOGDEBUG, "%s::%s - requeuing dropped picture %d to MFCCapture", CLASSNAME, __func__, picture.iIndex);
       if (!m_MFCCapture->PushBuffer(&picture)) {
         CLog::Log(LOGERROR, "%s::%s - Cannot requeue picture %d of dropped frame to MFC Capture", CLASSNAME, __func__, picture.iIndex);
         m_bCodecHealthy = false; // FIMC unrecoverable error, reset needed
@@ -987,11 +991,12 @@ void CMFCCodec::PumpBuffers() {
     }
     // Push the picture got from MFC Capture to FIMC Output (decoded from decoder to converter)
     else {
+      debug_log(LOGDEBUG, "%s::%s - passing on picture %d from MFCCapture to FIMCOutput", CLASSNAME, __func__, picture.iIndex);
       if (!m_FIMCOutput->PushBuffer(&picture)) {
         CLog::Log(LOGERROR, "%s::%s - Cannot pass on picture %d from MFC to FIMC Output", CLASSNAME, __func__, picture.iIndex);
         m_bCodecHealthy = false; // FIMC unrecoverable error, reset needed
       }
-      // break; // note: PushBuffer() is slow, so it may be better to leave the function after one call
+      break; // note: PushBuffer() is slow, so it seems better to leave the function after one call
     }
   }
   if (errno != EAGAIN)
@@ -1006,12 +1011,19 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
 
   if (!m_bCodecHealthy)
     return CDVDVideoCodec::VC_FLUSHED;
+  
+  // if we returned a picture last time and a buffer for further
+  // input data is free, then instruct VideoPlayer to give us more 
+  // input data now
+  if (m_preferAddData && -1 != m_V4l2BufferForNextData.iIndex) {
+    m_preferAddData = false;
+    return CDVDVideoCodec::VC_BUFFER;
+  }
 
+  // otherwise, try to get a new picture from either MFC Capture 
+  // or FIMC Capture, depending on whether the FIMC converter is in use
   V4l2SinkBuffer picture;
-  bool have_new_picture = false;
-
-  // Try to get a new picture from either MFC Capture or FIMC Capture, depending on
-  // whether the FIMC converter is in use
+  bool have_new_picture;
   {
     CSingleLock lock(m_criticalSection);
     if (m_iConverterHandle)
@@ -1022,14 +1034,16 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
 
   if (!have_new_picture) { 
     if (errno == EAGAIN) {
-      // request more data if currently no output picture to process and an output buffer is free
+      // if we currently do not have a new output picture, but
+      // a buffer for further input data is free, then instruct 
+      // VideoPlayer to give us more input data
       if (-1 != m_V4l2BufferForNextData.iIndex)
         return CDVDVideoCodec::VC_BUFFER;
       else
         return CDVDVideoCodec::VC_NONE;
     }
     else {
-      CLog::Log(LOGERROR, "%s::%s dequeuing decoded frame failed", CLASSNAME, __func__);
+      CLog::Log(LOGERROR, "%s::%s - Dequeuing decoded frame failed", CLASSNAME, __func__);
       m_bCodecHealthy= false;
       return CDVDVideoCodec::VC_ERROR;
     }
@@ -1055,19 +1069,26 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   if (m_codecControlFlags & DVD_CODEC_CTRL_DROP)
     pDvdVideoPicture->iFlags       |= DVP_FLAG_DROPPED;
 
-  debug_log(LOGDEBUG, "%s::%s - output frame pts %lf", CLASSNAME, __func__, pDvdVideoPicture->pts);
+  debug_log(LOGDEBUG, "%s::%s - output frame pts %lf from %s buffer %d", CLASSNAME, __func__, pDvdVideoPicture->pts, 
+    m_iConverterHandle ? "FIMCCapture" : "MFCCapture",
+    static_cast<CVideoBufferMFC*>(pDvdVideoPicture->videoBuffer)->m_v4l2buffer.iIndex );
+
+  m_preferAddData= true; // next time, prefer VC_BUFFER return value
   return CDVDVideoCodec::VC_PICTURE;
 }
 
 void CMFCCodec::ReturnBuffer(V4l2SinkBuffer* pBuffer) {
-  debug_log(LOGDEBUG, "%s::%s - returning buffer %d", CLASSNAME, __func__, pBuffer->iIndex);
   bool success = false;
   {
     CSingleLock lock(m_criticalSection);
-    if (m_iConverterHandle && m_FIMCCapture)
+    if (m_iConverterHandle && m_FIMCCapture) {
+      debug_log(LOGDEBUG, "%s::%s - returning buffer %d to FIMCCapture", CLASSNAME, __func__, pBuffer->iIndex);
       success= m_FIMCCapture->PushBuffer(pBuffer);
-    else if (m_MFCCapture)
+    }
+    else if (m_MFCCapture) {
+      debug_log(LOGDEBUG, "%s::%s - returning buffer %d to MFCCapture", CLASSNAME, __func__, pBuffer->iIndex);
       success= m_MFCCapture->PushBuffer(pBuffer);
+    }
   }
   if (!success) {
     CLog::Log(LOGERROR, "%s::%s - Error returning buffer %d", CLASSNAME, __func__, pBuffer->iIndex);

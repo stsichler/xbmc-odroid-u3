@@ -99,6 +99,7 @@ public:
 
   int m_droppedFrames;
   double m_codecPts;
+  bool m_preferAddData;
 
   CCriticalSection m_criticalSection;
   std::shared_ptr<CVideoBufferPoolMFC> msp_buffer_pool;
