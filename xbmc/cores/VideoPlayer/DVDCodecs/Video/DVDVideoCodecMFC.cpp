@@ -40,7 +40,7 @@
 #define INPUT_BUFFERS      3
 #define OUTPUT_BUFFERS     3
 
-#define DIRECT_RENDER_4VL2_BUFFERS 0 // set to '1' in order to directly render 4VL2 buffers, ie. do Texture Upload directly
+#define DIRECT_RENDER_V4L2_BUFFERS 0 // set to '1' in order to directly render 4VL2 buffers, ie. do Texture Upload directly
                                      // from mmap()-ed FIMC output buffer.
                                      // NOTE: for ODROID-U3, this seems SLOW, so it seems better to memcpy the picture into
                                      // an intermediate buffer before passing it to rendering. in that case, FIMC is disabled
@@ -56,11 +56,11 @@ union PtsReinterpreter
   double as_double;
 };
 
-#if DIRECT_RENDER_4VL2_BUFFERS
+#if DIRECT_RENDER_V4L2_BUFFERS
 
 #define FINAL_OUTPUT_BUFFERS (OUTPUT_BUFFERS+3) // rendering may keep up to three buffers locked in that case
 
-#else//DIRECT_RENDER_4VL2_BUFFERS
+#else//DIRECT_RENDER_V4L2_BUFFERS
 
 #define FINAL_OUTPUT_BUFFERS OUTPUT_BUFFERS
 
@@ -69,6 +69,8 @@ static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t*
 {
 #if defined(HAS_NEON)
   int dst_block_fix_neon = dst_stride - 64;
+  bool neon_alignment_src32_dst32_met = (src_stride&31) == 0 && (dst_stride&31) == 0;
+  bool neon_alignment_src32_dst16_met = (src_stride&31) == 0 && (dst_stride&15) == 0;
 #endif//defined(HAS_NEON)
 
   // determine number of blocks in x and y direction
@@ -103,15 +105,30 @@ static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t*
     // copy block line-by-line
 
 #if defined(HAS_NEON)
-    if (maxx == 64) {
+    if (maxx == 64 && neon_alignment_src32_dst32_met) {
       for (; maxy; --maxy, dst_block+=dst_block_fix_neon) {
         asm volatile (
-          "vld1.u8  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
-          "pld      [%[src_block], #32]                     \n"
-          "vst1.u8  {d0, d1, d2, d3}, [%[dst_block],:256]!  \n"
-          "vld1.u8  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
-          "pld      [%[src_block], #32]                     \n"
-          "vst1.u8  {d0, d1, d2, d3}, [%[dst_block],:256]!  \n"
+          "vld1.64  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
+          "pld      [%[src_block], #32]                      \n"
+          "vst1.64  {d0, d1, d2, d3}, [%[dst_block],:256]!  \n"
+          "vld1.64  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
+          "pld      [%[src_block], #32]                      \n"
+          "vst1.64  {d0, d1, d2, d3}, [%[dst_block],:256]!  \n"
+          : [dst_block]"+r"(dst_block), [src_block]"+r"(src_block)
+          :
+          : "d0", "d1", "d2", "d3"
+        );
+      } 
+    }
+    else if (maxx == 64 && neon_alignment_src32_dst16_met) {
+      for (; maxy; --maxy, dst_block+=dst_block_fix_neon) {
+        asm volatile (
+          "vld1.64  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
+          "pld      [%[src_block], #32]                      \n"
+          "vst1.64  {d0, d1, d2, d3}, [%[dst_block],:128]!  \n"
+          "vld1.64  {d0, d1, d2, d3}, [%[src_block],:256]!  \n"
+          "pld      [%[src_block], #32]                      \n"
+          "vst1.64  {d0, d1, d2, d3}, [%[dst_block],:128]!  \n"
           : [dst_block]"+r"(dst_block), [src_block]"+r"(src_block)
           :
           : "d0", "d1", "d2", "d3"
@@ -119,10 +136,12 @@ static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t*
       } 
     }
     else
-#endif//defined(HAS_NEON)     
+#endif//defined(HAS_NEON)
+    {
       for (; maxy; --maxy, src_block+=64, dst_block+=dst_stride) 
         memcpy(dst_block, src_block, maxx);
-
+    }
+    
     src_block += src_block_fix;
 
     // do that voodoo Z magic
@@ -159,7 +178,7 @@ static void macroblock_memcpy_64x32(uint8_t* dst, int dst_stride, const uint8_t*
   }
 }
 
-#endif//DIRECT_RENDER_4VL2_BUFFERS
+#endif//DIRECT_RENDER_V4L2_BUFFERS
 
 CVideoBufferMFC::CVideoBufferMFC(int id) :
   CVideoBuffer(id) {
@@ -178,12 +197,14 @@ CVideoBufferMFC::~CVideoBufferMFC() {
 void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int width, int height, int stride) {
   m_v4l2buffer = *pBuffer;
 
+  // determine AV pixelformat
+
   AVPixelFormat av_pixformat = AV_PIX_FMT_NONE;
-#if !DIRECT_RENDER_4VL2_BUFFERS
+#if !DIRECT_RENDER_V4L2_BUFFERS
   if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT) // V4L2_PIX_FMT_NV12M in 64x32 macroblock tiles
     av_pixformat = AV_PIX_FMT_NV12;
   else 
-#endif//!DIRECT_RENDER_4VL2_BUFFERS
+#endif//!DIRECT_RENDER_V4L2_BUFFERS
   if (v4l2_pixelformat == V4L2_PIX_FMT_NV12M)
     av_pixformat = AV_PIX_FMT_NV12;
   else if (v4l2_pixelformat == V4L2_PIX_FMT_YUV420M)
@@ -191,7 +212,10 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
   else 
       CLog::Log(LOGERROR, "%s::%s - unsupported 4vl2 format %x", CLASSNAME, __func__, v4l2_pixelformat);
 
-#if !DIRECT_RENDER_4VL2_BUFFERS
+#if !DIRECT_RENDER_V4L2_BUFFERS
+
+  // if we do not directly pass on V4L2 to rendering and image format has changed,
+  // then (re-)allocate temporary image buffers.
 
   if (av_pixformat != m_pixFormat || m_width != width || m_height != height) {
 
@@ -213,11 +237,22 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
       CLog::Log(LOGERROR, "%s::%s - unsupported av format %d", CLASSNAME, __func__, av_pixformat);
     }
 
-    // do 32-byte alignment for NEON
+    // do 32-byte alignment of starting addresses in case NEON is in use
     mp_planes[0] = (uint8_t*)((size_t)(mp_planes_unaligned[0]+31)&~31);
     mp_planes[1] = (uint8_t*)((size_t)(mp_planes_unaligned[1]+31)&~31);
     mp_planes[2] = (uint8_t*)((size_t)(mp_planes_unaligned[2]+31)&~31);
+
+#if defined(HAS_NEON)
+    if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT && (width&15) != 0) {
+      // NOTE: as a compromise, we allow 16-byte line-alignment in target image.
+      // source-stride is 32-byte aligned anyway, because it is 64x32 byte
+      // macroblocks.
+      CLog::Log(LOGNOTICE, "%s::%s - image stride incompatible to NEON. using memcpy fallback", CLASSNAME, __func__);
+    }
+#endif//defined(HAS_NEON)
   }
+
+  // copy V4L2 buffers to temporary image buffers
 
   uint8_t *src, *dst;
   if (v4l2_pixelformat == V4L2_PIX_FMT_NV12MT) {
@@ -253,13 +288,13 @@ void CVideoBufferMFC::Set(V4l2SinkBuffer *pBuffer, int v4l2_pixelformat, int wid
       memcpy(dst, src, width/2);
   }
 
-#else //!DIRECT_RENDER_4VL2_BUFFERS
+#else //!DIRECT_RENDER_V4L2_BUFFERS
 
   mp_planes[0]= (uint8_t*)pBuffer->cPlane[0];
   mp_planes[1]= (uint8_t*)pBuffer->cPlane[1];
   mp_planes[2]= (uint8_t*)pBuffer->cPlane[2];
 
-#endif//!DIRECT_RENDER_4VL2_BUFFERS
+#endif//!DIRECT_RENDER_V4L2_BUFFERS
 
   m_pixFormat = av_pixformat;
   m_width = width;
@@ -323,20 +358,20 @@ CVideoBuffer* CVideoBufferPoolMFC::Get() {
 
 void CVideoBufferPoolMFC::Return(int id) {
   CSingleLock lock(m_criticalSection);
-  
-#if DIRECT_RENDER_4VL2_BUFFERS
+
+#if DIRECT_RENDER_V4L2_BUFFERS
   if (mp_codec && (size_t)id < m_videoBuffers.size() && m_videoBuffers[id]->m_v4l2buffer.iIndex != -1) {
     debug_log(LOGDEBUG, "%s::%s - returning buffer with id #%d", CLASSNAME, __func__, id);
     mp_codec->ReturnBuffer(&m_videoBuffers[id]->m_v4l2buffer);
   }
   m_videoBuffers[id]->m_v4l2buffer.iIndex = -1;
-#endif//DIRECT_RENDER_4VL2_BUFFERS
+#endif//DIRECT_RENDER_V4L2_BUFFERS
 
   m_freeBuffers.push_back(id);
 }
 
 void CVideoBufferPoolMFC::Detach() {
-#if DIRECT_RENDER_4VL2_BUFFERS
+#if DIRECT_RENDER_V4L2_BUFFERS
   CSingleLock lock(m_criticalSection);
 
   // wait up to 0.5 sec until all buffers are released
@@ -355,7 +390,7 @@ void CVideoBufferPoolMFC::Detach() {
       // note: do not push to freeBuffers
     }
   }
-#endif//DIRECT_RENDER_4VL2_BUFFERS
+#endif//DIRECT_RENDER_V4L2_BUFFERS
 
   mp_codec= nullptr;
 }
@@ -463,7 +498,7 @@ bool CMFCCodec::OpenDevices() {
                   return true;
                 }
 
-#if !DIRECT_RENDER_4VL2_BUFFERS
+#if !DIRECT_RENDER_V4L2_BUFFERS
                 memzero(fmt);
                 fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
                 fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12MT;
@@ -473,7 +508,7 @@ bool CMFCCodec::OpenDevices() {
                   m_iConverterHandle = nullptr;
                   return true;
                 }
-#endif//!DIRECT_RENDER_4VL2_BUFFERS
+#endif//!DIRECT_RENDER_V4L2_BUFFERS
 
               }
           }
@@ -598,7 +633,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   // If converter is present, it is our final sink
   finalSink = m_iConverterHandle ? m_iConverterHandle : m_iDecoderHandle;
 
-#if !DIRECT_RENDER_4VL2_BUFFERS
+#if !DIRECT_RENDER_V4L2_BUFFERS
   if (!m_iConverterHandle && m_finalFormat < 0) {
     // Test 64x32 TILED NV12 2 Planes Y/CbCr 
     memzero(fmt);
@@ -609,7 +644,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
       msp_buffer_pool->Configure(AV_PIX_FMT_NV12, 0);
     }
   }
-#endif//!DIRECT_RENDER_4VL2_BUFFERS
+#endif//!DIRECT_RENDER_V4L2_BUFFERS
   if (m_finalFormat < 0) {
     // Test NV12 2 Planes Y/CbCr 
     memzero(fmt);
@@ -1058,9 +1093,9 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   pDvdVideoPicture->videoBuffer     =  msp_buffer_pool->Get();
   static_cast<CVideoBufferMFC*>(pDvdVideoPicture->videoBuffer)
     ->Set(&picture, m_finalFormat, m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
-#if !DIRECT_RENDER_4VL2_BUFFERS
+#if !DIRECT_RENDER_V4L2_BUFFERS
   ReturnBuffer(&picture);
-#endif//!DIRECT_RENDER_4VL2_BUFFERS
+#endif//!DIRECT_RENDER_V4L2_BUFFERS
 
   pDvdVideoPicture->pts             = m_codecPts;
   pDvdVideoPicture->dts             = DVD_NOPTS_VALUE;
