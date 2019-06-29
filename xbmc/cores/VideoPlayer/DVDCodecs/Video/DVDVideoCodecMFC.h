@@ -11,6 +11,8 @@
   #include "LinuxV4l2Sink.h"
 #endif
 
+#include <deque>
+
 class CMFCCodec;
 class CDVDVideoCodecMFC;
 
@@ -101,6 +103,8 @@ public:
   double m_codecPts;
   bool m_preferAddData;
 
+  std::deque<V4l2SinkBuffer> m_ready_buffers;
+  
   CCriticalSection m_criticalSection;
   std::shared_ptr<CVideoBufferPoolMFC> msp_buffer_pool;
 };

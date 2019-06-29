@@ -550,8 +550,9 @@ void CMFCCodec::Dispose() {
 
   CLog::Log(LOGNOTICE, "%s::%s", CLASSNAME, __func__);
 
-  m_V4l2BufferForNextData.iIndex = -1; // TODO: must this picture be re-queued?
-
+  m_V4l2BufferForNextData.iIndex = -1;
+  m_ready_buffers.clear();
+  
   // detach (and cleanup) video buffer pool
 
   if (msp_buffer_pool) {
@@ -956,7 +957,18 @@ void CMFCCodec::Reset() {
     CLog::Log(LOGINFO, "%s::%s - Codec Reset requested, but codec is healthy, doing soft-flush", CLASSNAME, __func__);
     m_MFCOutput->SoftRestart();
     m_MFCCapture->SoftRestart();
-    m_V4l2BufferForNextData.iIndex = -1; // TODO: should we do that here?
+    // give ready buffers back to V4L2
+    {
+      CSingleLock lock(m_criticalSection);
+      while (!m_ready_buffers.empty())
+      {
+        if (m_iConverterHandle && m_FIMCCapture)
+          m_FIMCCapture->PushBuffer(&m_ready_buffers.front());
+        else if (m_MFCCapture)
+          m_MFCCapture->PushBuffer(&m_ready_buffers.front());
+        m_ready_buffers.pop_front();
+      }
+    }
   } else {
     CLog::Log(LOGERROR, "%s::%s - Codec Reset. Reinitializing", CLASSNAME, __func__);
     CDVDCodecOptions options;
@@ -988,11 +1000,33 @@ void CMFCCodec::PumpBuffers() {
     }
   }
 
+  // get ready pictures
+
+  V4l2SinkBuffer picture;
+  bool have_new_picture;
+  do
+  {
+    CSingleLock lock(m_criticalSection);
+    if (m_iConverterHandle)
+      have_new_picture = m_FIMCCapture->DequeueBuffer(&picture);
+    else
+      have_new_picture = m_MFCCapture->DequeueBuffer(&picture);
+
+    if (have_new_picture)
+    {
+      m_ready_buffers.push_back(picture);
+    }
+  }
+  while (have_new_picture);
+ 
+  if (errno != EAGAIN) {
+    CLog::Log(LOGERROR, "%s::%s - Dequeuing decoded frame failed", CLASSNAME, __func__);
+    m_bCodecHealthy= false;
+  }
+
   // if FIMC converter is in use, exchange buffers between them now
   if (!m_iConverterHandle)
     return;
-
-  V4l2SinkBuffer picture;
 
   // re-queue (empty/consumed) buffers from FIMC Output to MFC Capture 
 
@@ -1050,44 +1084,45 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   // if we returned a picture last time and a buffer for further
   // input data is free, then instruct VideoPlayer to give us more 
   // input data now
-  if (m_preferAddData && -1 != m_V4l2BufferForNextData.iIndex) {
+  if (true /* m_preferAddData*/ && -1 != m_V4l2BufferForNextData.iIndex) {
     m_preferAddData = false;
     return CDVDVideoCodec::VC_BUFFER;
   }
 
   // otherwise, try to get a new picture from either MFC Capture 
   // or FIMC Capture, depending on whether the FIMC converter is in use
-  V4l2SinkBuffer picture;
-  bool have_new_picture;
-  {
-    CSingleLock lock(m_criticalSection);
-    if (m_iConverterHandle)
-      have_new_picture = m_FIMCCapture->DequeueBuffer(&picture);
+  if (m_ready_buffers.empty()) { 
+    // if we currently do not have a new output picture, but
+    // a buffer for further input data is free, then instruct 
+    // VideoPlayer to give us more input data
+    if (-1 != m_V4l2BufferForNextData.iIndex)
+      return CDVDVideoCodec::VC_BUFFER;
     else
-      have_new_picture = m_MFCCapture->DequeueBuffer(&picture);
+      return CDVDVideoCodec::VC_NONE;
   }
 
-  if (!have_new_picture) { 
-    if (errno == EAGAIN) {
-      // if we currently do not have a new output picture, but
-      // a buffer for further input data is free, then instruct 
-      // VideoPlayer to give us more input data
-      if (-1 != m_V4l2BufferForNextData.iIndex)
-        return CDVDVideoCodec::VC_BUFFER;
-      else
-        return CDVDVideoCodec::VC_NONE;
-    }
-    else {
-      CLog::Log(LOGERROR, "%s::%s - Dequeuing decoded frame failed", CLASSNAME, __func__);
-      m_bCodecHealthy= false;
-      return CDVDVideoCodec::VC_ERROR;
+  PtsReinterpreter ptsconv;
+  std::deque<V4l2SinkBuffer>::iterator i= m_ready_buffers.begin();
+  std::deque<V4l2SinkBuffer>::iterator i_min= m_ready_buffers.begin();
+  ptsconv.as_int32[0] = i->timeStamp.tv_sec;
+  ptsconv.as_int32[1] = i->timeStamp.tv_usec;
+
+  while ((++i) != m_ready_buffers.end())
+  {
+    PtsReinterpreter ptsconv2;
+    ptsconv2.as_int32[0] = i->timeStamp.tv_sec;
+    ptsconv2.as_int32[1] = i->timeStamp.tv_usec;
+    
+    if (ptsconv2.as_double < ptsconv.as_double)
+    {
+      i_min = i;
+      ptsconv = ptsconv2;
     }
   }
-  
-  PtsReinterpreter ptsconv;
-  ptsconv.as_int32[0] = picture.timeStamp.tv_sec;
-  ptsconv.as_int32[1] = picture.timeStamp.tv_usec;
+
+  V4l2SinkBuffer picture = *i_min;
   m_codecPts = ptsconv.as_double;
+  m_ready_buffers.erase(i_min);
 
   pDvdVideoPicture->SetParams(m_resultFormat);
   pDvdVideoPicture->videoBuffer     =  msp_buffer_pool->Get();
