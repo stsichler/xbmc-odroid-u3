@@ -411,6 +411,8 @@ CMFCCodec::CMFCCodec() {
   m_FIMCCapture = nullptr;
 
   m_V4l2BufferForNextData.iIndex = -1;
+  m_OutputPictures_first_free = -1;
+  m_OutputPictures_first_used = -1;
 
   m_droppedFrames = 0;
   m_codecPts = DVD_NOPTS_VALUE;
@@ -551,7 +553,9 @@ void CMFCCodec::Dispose() {
   CLog::Log(LOGNOTICE, "%s::%s", CLASSNAME, __func__);
 
   m_V4l2BufferForNextData.iIndex = -1;
-  m_ready_buffers.clear();
+  m_OutputPictures_first_free = -1;
+  m_OutputPictures_first_used = -1;
+  m_OutputPictures.clear();
   
   // detach (and cleanup) video buffer pool
 
@@ -609,7 +613,7 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
   msp_buffer_pool.reset(new CVideoBufferPoolMFC(this));
 
   m_V4l2BufferForNextData.iIndex = -1;
-  m_preferAddData = true;
+  m_preferAddData = 3;
 
   if (!OpenDevices()) { 
     CLog::Log(LOGERROR, "%s::%s - No Exynos MFC Decoder/Converter found", CLASSNAME, __func__);
@@ -960,13 +964,18 @@ void CMFCCodec::Reset() {
     // give ready buffers back to V4L2
     {
       CSingleLock lock(m_criticalSection);
-      while (!m_ready_buffers.empty())
+      while (m_OutputPictures_first_used >= 0)
       {
+        int idx = m_OutputPictures_first_used;
         if (m_iConverterHandle && m_FIMCCapture)
-          m_FIMCCapture->PushBuffer(&m_ready_buffers.front());
+          m_FIMCCapture->PushBuffer(&m_OutputPictures[idx]);
         else if (m_MFCCapture)
-          m_MFCCapture->PushBuffer(&m_ready_buffers.front());
-        m_ready_buffers.pop_front();
+          m_MFCCapture->PushBuffer(&m_OutputPictures[idx]);
+
+        // remove from linked list of used buffers and add to free buffers
+        m_OutputPictures_first_used = m_OutputPictures[idx].m_next;
+        m_OutputPictures[idx].m_next = m_OutputPictures_first_free;
+        m_OutputPictures_first_free = idx;
       }
     }
   } else {
@@ -1002,19 +1011,32 @@ void CMFCCodec::PumpBuffers() {
 
   // get ready pictures
 
-  V4l2SinkBuffer picture;
   bool have_new_picture;
   do
   {
+    // if no buffer for storage available, then allocate a new one
+    if (-1 == m_OutputPictures_first_free)
+    {
+      m_OutputPictures.resize(m_OutputPictures.size()+1);
+      m_OutputPictures.back().m_next = -1;
+      m_OutputPictures_first_free = m_OutputPictures.size()-1;
+    }  
+    int idx = m_OutputPictures_first_free;
+
+    // and try to get a decodec picture
     CSingleLock lock(m_criticalSection);
     if (m_iConverterHandle)
-      have_new_picture = m_FIMCCapture->DequeueBuffer(&picture);
+      have_new_picture = m_FIMCCapture->DequeueBuffer(&m_OutputPictures[idx]);
     else
-      have_new_picture = m_MFCCapture->DequeueBuffer(&picture);
+      have_new_picture = m_MFCCapture->DequeueBuffer(&m_OutputPictures[idx]);
 
     if (have_new_picture)
     {
-      m_ready_buffers.push_back(picture);
+      // if we have one, then remove buffer from linked list of empty
+      // output buffers and add to used buffers
+      m_OutputPictures_first_free = m_OutputPictures[idx].m_next;
+      m_OutputPictures[idx].m_next = m_OutputPictures_first_used;
+      m_OutputPictures_first_used = idx;
     }
   }
   while (have_new_picture);
@@ -1030,6 +1052,7 @@ void CMFCCodec::PumpBuffers() {
 
   // re-queue (empty/consumed) buffers from FIMC Output to MFC Capture 
 
+  V4l2SinkBuffer picture;
   while (m_bCodecHealthy && m_FIMCOutput->DequeueBuffer(&picture)) {
     debug_log(LOGDEBUG, "%s::%s - requeuing consumed buffer %d from FIMCOutput to MFCCapture", CLASSNAME, __func__, picture.iIndex);
     if (!m_MFCCapture->PushBuffer(&picture)) {
@@ -1084,14 +1107,14 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   // if we returned a picture last time and a buffer for further
   // input data is free, then instruct VideoPlayer to give us more 
   // input data now
-  if (true /* m_preferAddData*/ && -1 != m_V4l2BufferForNextData.iIndex) {
-    m_preferAddData = false;
+  if (m_preferAddData && -1 != m_V4l2BufferForNextData.iIndex) {
+    --m_preferAddData;
     return CDVDVideoCodec::VC_BUFFER;
   }
 
   // otherwise, try to get a new picture from either MFC Capture 
   // or FIMC Capture, depending on whether the FIMC converter is in use
-  if (m_ready_buffers.empty()) { 
+  if (-1 == m_OutputPictures_first_used) { 
     // if we currently do not have a new output picture, but
     // a buffer for further input data is free, then instruct 
     // VideoPlayer to give us more input data
@@ -1101,35 +1124,42 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
       return CDVDVideoCodec::VC_NONE;
   }
 
-  PtsReinterpreter ptsconv;
-  std::deque<V4l2SinkBuffer>::iterator i= m_ready_buffers.begin();
-  std::deque<V4l2SinkBuffer>::iterator i_min= m_ready_buffers.begin();
-  ptsconv.as_int32[0] = i->timeStamp.tv_sec;
-  ptsconv.as_int32[1] = i->timeStamp.tv_usec;
+  // find output picture with lowest pts value
 
-  while ((++i) != m_ready_buffers.end())
+  int idx= m_OutputPictures_first_used;
+  int idx_min= m_OutputPictures_first_used;
+  PtsReinterpreter pts_min;
+  pts_min.as_int32[0] = m_OutputPictures[idx].timeStamp.tv_sec;
+  pts_min.as_int32[1] = m_OutputPictures[idx].timeStamp.tv_usec;
+
+  while ( -1 != (idx= m_OutputPictures[idx].m_next))
   {
-    PtsReinterpreter ptsconv2;
-    ptsconv2.as_int32[0] = i->timeStamp.tv_sec;
-    ptsconv2.as_int32[1] = i->timeStamp.tv_usec;
+    PtsReinterpreter pts;
+    pts.as_int32[0] = m_OutputPictures[idx].timeStamp.tv_sec;
+    pts.as_int32[1] = m_OutputPictures[idx].timeStamp.tv_usec;
     
-    if (ptsconv2.as_double < ptsconv.as_double)
+    if (pts.as_double < pts_min.as_double)
     {
-      i_min = i;
-      ptsconv = ptsconv2;
+      idx_min = idx;
+      pts_min = pts;
     }
   }
 
-  V4l2SinkBuffer picture = *i_min;
-  m_codecPts = ptsconv.as_double;
-  m_ready_buffers.erase(i_min);
+  m_codecPts = pts_min.as_double;
+
+  // remove output picture from linked list of used buffers and
+  // add to list of free buffers
+  m_OutputPictures_first_used = m_OutputPictures[idx_min].m_next;
+  m_OutputPictures[idx_min].m_next = m_OutputPictures_first_free;
+  m_OutputPictures_first_free = idx_min;
 
   pDvdVideoPicture->SetParams(m_resultFormat);
   pDvdVideoPicture->videoBuffer     =  msp_buffer_pool->Get();
   static_cast<CVideoBufferMFC*>(pDvdVideoPicture->videoBuffer)
-    ->Set(&picture, m_finalFormat, m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
+    ->Set(&m_OutputPictures[idx_min], m_finalFormat, m_resultFormat.iWidth, m_resultFormat.iHeight, m_resultLineSize);
+
 #if !DIRECT_RENDER_V4L2_BUFFERS
-  ReturnBuffer(&picture);
+  ReturnBuffer(&m_OutputPictures[idx_min]);
 #endif//!DIRECT_RENDER_V4L2_BUFFERS
 
   pDvdVideoPicture->pts             = m_codecPts;
@@ -1143,7 +1173,7 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
     m_iConverterHandle ? "FIMCCapture" : "MFCCapture",
     static_cast<CVideoBufferMFC*>(pDvdVideoPicture->videoBuffer)->m_v4l2buffer.iIndex );
 
-  m_preferAddData= true; // next time, prefer VC_BUFFER return value
+  m_preferAddData= 3; // next time, prefer VC_BUFFER return value
   return CDVDVideoCodec::VC_PICTURE;
 }
 
