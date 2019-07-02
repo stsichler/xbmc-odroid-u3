@@ -1111,36 +1111,31 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
     --m_preferAddData;
     return CDVDVideoCodec::VC_BUFFER;
   }
-
-  // otherwise, try to get a new picture from either MFC Capture 
-  // or FIMC Capture, depending on whether the FIMC converter is in use
-  if (-1 == m_OutputPictures_first_used) { 
-    // if we currently do not have a new output picture, but
-    // a buffer for further input data is free, then instruct 
-    // VideoPlayer to give us more input data
-    if (-1 != m_V4l2BufferForNextData.iIndex)
-      return CDVDVideoCodec::VC_BUFFER;
-    else
-      return CDVDVideoCodec::VC_NONE;
+  // otherwise, only demand for more input data, if we currently
+  // don't have an output picture to return
+  if (-1 == m_OutputPictures_first_used) {
+    return (-1 != m_V4l2BufferForNextData.iIndex) ?
+      CDVDVideoCodec::VC_BUFFER : CDVDVideoCodec::VC_NONE;
   }
 
-  // find output picture with lowest pts value
+  // if decoded output pictures are available, then find output picture with 
+  // lowest pts value
 
-  int idx= m_OutputPictures_first_used;
-  int idx_min= m_OutputPictures_first_used;
+  int *p_idx= &m_OutputPictures_first_used;
+  int *p_idx_min= p_idx; 
   PtsReinterpreter pts_min;
-  pts_min.as_int32[0] = m_OutputPictures[idx].timeStamp.tv_sec;
-  pts_min.as_int32[1] = m_OutputPictures[idx].timeStamp.tv_usec;
+  pts_min.as_int32[0] = m_OutputPictures[*p_idx_min].timeStamp.tv_sec;
+  pts_min.as_int32[1] = m_OutputPictures[*p_idx_min].timeStamp.tv_usec;
 
-  while ( -1 != (idx= m_OutputPictures[idx].m_next))
+  while ( -1 != *(p_idx = &m_OutputPictures[*p_idx].m_next))
   {
     PtsReinterpreter pts;
-    pts.as_int32[0] = m_OutputPictures[idx].timeStamp.tv_sec;
-    pts.as_int32[1] = m_OutputPictures[idx].timeStamp.tv_usec;
+    pts.as_int32[0] = m_OutputPictures[*p_idx].timeStamp.tv_sec;
+    pts.as_int32[1] = m_OutputPictures[*p_idx].timeStamp.tv_usec;
     
     if (pts.as_double < pts_min.as_double)
     {
-      idx_min = idx;
+      p_idx_min = p_idx;
       pts_min = pts;
     }
   }
@@ -1148,10 +1143,16 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   m_codecPts = pts_min.as_double;
 
   // remove output picture from linked list of used buffers and
-  // add to list of free buffers
-  m_OutputPictures_first_used = m_OutputPictures[idx_min].m_next;
+  // add to list of free buffers. 
+  // (p_idx_min now points to the index variable indicating the picture
+  // with lowest pts)
+  int idx_min= *p_idx_min;
+  *p_idx_min = m_OutputPictures[idx_min].m_next;
   m_OutputPictures[idx_min].m_next = m_OutputPictures_first_free;
   m_OutputPictures_first_free = idx_min;
+
+
+  // now, fill *pDvdVideoPicture return value
 
   pDvdVideoPicture->SetParams(m_resultFormat);
   pDvdVideoPicture->videoBuffer     =  msp_buffer_pool->Get();
