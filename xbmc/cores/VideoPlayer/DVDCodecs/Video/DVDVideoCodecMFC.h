@@ -11,7 +11,7 @@
   #include "LinuxV4l2Sink.h"
 #endif
 
-#include <deque>
+#include <vector>
 
 class CMFCCodec;
 class CDVDVideoCodecMFC;
@@ -101,9 +101,16 @@ public:
 
   int m_droppedFrames;
   double m_codecPts;
-  bool m_preferAddData;
+  int m_preferAddData;
 
-  std::deque<V4l2SinkBuffer> m_ready_buffers;
+  template<typename T>
+  struct Linked : T
+  { 
+    int m_next; ///<index of next free/used buffer 
+  };
+  int m_OutputPictures_first_free;///<index of first free buffer in m_OutputPictures
+  int m_OutputPictures_first_used;///<index of first used buffer in m_OutputPictures
+  std::vector<Linked<V4l2SinkBuffer>> m_OutputPictures;
   
   CCriticalSection m_criticalSection;
   std::shared_ptr<CVideoBufferPoolMFC> msp_buffer_pool;
