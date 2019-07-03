@@ -1140,8 +1140,6 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
     }
   }
 
-  m_codecPts = pts_min.as_double;
-
   // remove output picture from linked list of used buffers and
   // add to list of free buffers. 
   // (p_idx_min now points to the index variable indicating the picture
@@ -1151,6 +1149,20 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   m_OutputPictures[idx_min].m_next = m_OutputPictures_first_free;
   m_OutputPictures_first_free = idx_min;
 
+  // -----------------------------------------
+  // HACK: ODROID-U3 specific!!!!
+  // limit frame rate of 1080p to 30Hz
+  //
+  if (m_resultFormat.iWidth>=1920 && m_resultFormat.iHeight >= 1080 
+    && pts_min.as_double > m_codecPts && (pts_min.as_double - m_codecPts) < 30000)
+  {
+    ReturnBuffer(&m_OutputPictures[idx_min]);
+    m_preferAddData= 3; // next time, prefer VC_BUFFER return value
+    return CDVDVideoCodec::VC_NONE;
+  }
+  // -----------------------------------------
+
+  m_codecPts = pts_min.as_double;
 
   // now, fill *pDvdVideoPicture return value
 
@@ -1194,6 +1206,9 @@ void CMFCCodec::ReturnBuffer(V4l2SinkBuffer* pBuffer) {
   if (!success) {
     CLog::Log(LOGERROR, "%s::%s - Error returning buffer %d", CLASSNAME, __func__, pBuffer->iIndex);
     m_bCodecHealthy = false; // FIMC unrecoverable error, reset needed
+  }
+  else {
+    pBuffer->iIndex = -1;
   }
 }
 
