@@ -1153,7 +1153,8 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   // HACK: ODROID-U3 specific!!!!
   // limit frame rate of 1080p to 30Hz
   //
-  if (m_resultFormat.iWidth>=1920 && m_resultFormat.iHeight >= 1080 
+  if (m_finalFormat == V4L2_PIX_FMT_NV12MT // should only be in use on U3
+    && m_resultFormat.iWidth>=1920 && m_resultFormat.iHeight >= 1080 
     && pts_min.as_double > m_codecPts && (pts_min.as_double - m_codecPts) < 30000)
   {
     ReturnBuffer(&m_OutputPictures[idx_min]);
