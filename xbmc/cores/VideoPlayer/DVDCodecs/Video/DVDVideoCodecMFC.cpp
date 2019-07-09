@@ -367,7 +367,8 @@ void CVideoBufferPoolMFC::Return(int id) {
   m_videoBuffers[id]->m_v4l2buffer.iIndex = -1;
 #endif//DIRECT_RENDER_V4L2_BUFFERS
 
-  m_freeBuffers.push_back(id);
+  if (std::find(m_freeBuffers.begin(), m_freeBuffers.end(), id) == m_freeBuffers.end())
+    m_freeBuffers.push_back(id);
 }
 
 void CVideoBufferPoolMFC::Detach() {
@@ -844,11 +845,9 @@ bool CMFCCodec::Open(CDVDStreamInfo &hints, CDVDCodecOptions &options) {
 
   // determine resulting video picture format
 
-  m_resultFormat.color_space     = AVCOL_SPC_UNSPECIFIED;
-  m_resultFormat.color_range     = AVCOL_RANGE_UNSPECIFIED;
-  m_resultFormat.color_primaries = AVCOL_PRI_UNSPECIFIED;
-  m_resultFormat.colorBits       = 8;
-
+  m_resultFormat.videoBuffer     = nullptr;
+  m_resultFormat.Reset();
+ 
   m_resultFormat.iWidth          = crop.c.width;
   m_resultFormat.iHeight         = crop.c.height;
 
