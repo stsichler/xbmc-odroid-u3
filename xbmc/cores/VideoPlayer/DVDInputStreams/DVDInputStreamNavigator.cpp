@@ -307,6 +307,60 @@ int64_t CDVDInputStreamNavigator::Seek(int64_t offset, int whence)
     return -1;
 }
 
+int CDVDInputStreamNavigator::process_block_DVDNAV_CELL_CHANGE(uint8_t* buf)
+      {
+        // Some status information like the current Title and Part numbers do not
+        // change inside a cell. Therefore this event can be used to query such
+        // information only when necessary and update the decoding/displaying
+        // accordingly.
+
+        uint32_t pos, len;
+
+        m_dll.dvdnav_current_title_info(m_dvdnav, &m_iTitle, &m_iPart);
+        m_dll.dvdnav_get_number_of_titles(m_dvdnav, &m_iTitleCount);
+        if(m_iTitle > 0)
+          m_dll.dvdnav_get_number_of_parts(m_dvdnav, m_iTitle, &m_iPartCount);
+        else
+          m_iPartCount = 0;
+        m_dll.dvdnav_get_position(m_dvdnav, &pos, &len);
+
+        // get chapters' timestamps if we have not cached them yet
+        if (m_mapTitleChapters.find(m_iTitle) == m_mapTitleChapters.end())
+        {
+          uint64_t* times = NULL;
+          uint64_t duration;
+          //dvdnav_describe_title_chapters returns 0 on failure and NULL for times
+          int entries = m_dll.dvdnav_describe_title_chapters(m_dvdnav, m_iTitle, &times, &duration);
+
+          if (entries != m_iPartCount)
+            CLog::Log(LOGDEBUG, "%s - Number of chapters/positions differ: Chapters %d, positions %d\n", __FUNCTION__, m_iPartCount, entries);
+
+          if (times)
+          {
+            // the times array stores the end timestamps of the chapters, e.g., times[0] stores the position/beginning of chapter 2
+            m_mapTitleChapters[m_iTitle][1] = 0;
+            for (int i = 0; i < entries - 1; ++i)
+            {
+              m_mapTitleChapters[m_iTitle][i + 2] = times[i] / 90000;
+            }
+            m_dll.dvdnav_free(times);
+          }
+        }
+        CLog::Log(LOGDEBUG, "%s - Cell change: Title %d, Chapter %d\n", __FUNCTION__, m_iTitle, m_iPart);
+        CLog::Log(LOGDEBUG, "%s - At position %.0f%% inside the feature\n", __FUNCTION__, 100 * (double)pos / (double)len);
+        //Get total segment time
+
+        dvdnav_cell_change_event_t* cell_change_event = reinterpret_cast<dvdnav_cell_change_event_t*>(buf);
+        m_iCellStart = cell_change_event->cell_start; // store cell time as we need that for time later
+        m_iTime      = (int) (m_iCellStart / 90);
+        m_iTotalTime = (int) (cell_change_event->pgc_length / 90);
+
+        return m_pVideoPlayer->OnDiscNavResult(buf, DVDNAV_CELL_CHANGE);
+      }
+
+
+
+
 int CDVDInputStreamNavigator::ProcessBlock(uint8_t* dest_buffer, int* read)
 {
   if (!m_dvdnav)
@@ -483,56 +537,8 @@ int CDVDInputStreamNavigator::ProcessBlock(uint8_t* dest_buffer, int* read)
       break;
 
     case DVDNAV_CELL_CHANGE:
-      {
-        // Some status information like the current Title and Part numbers do not
-        // change inside a cell. Therefore this event can be used to query such
-        // information only when necessary and update the decoding/displaying
-        // accordingly.
-
-        uint32_t pos, len;
-
-        m_dll.dvdnav_current_title_info(m_dvdnav, &m_iTitle, &m_iPart);
-        m_dll.dvdnav_get_number_of_titles(m_dvdnav, &m_iTitleCount);
-        if(m_iTitle > 0)
-          m_dll.dvdnav_get_number_of_parts(m_dvdnav, m_iTitle, &m_iPartCount);
-        else
-          m_iPartCount = 0;
-        m_dll.dvdnav_get_position(m_dvdnav, &pos, &len);
-
-        // get chapters' timestamps if we have not cached them yet
-        if (m_mapTitleChapters.find(m_iTitle) == m_mapTitleChapters.end())
-        {
-          uint64_t* times = NULL;
-          uint64_t duration;
-          //dvdnav_describe_title_chapters returns 0 on failure and NULL for times
-          int entries = m_dll.dvdnav_describe_title_chapters(m_dvdnav, m_iTitle, &times, &duration);
-
-          if (entries != m_iPartCount)
-            CLog::Log(LOGDEBUG, "%s - Number of chapters/positions differ: Chapters %d, positions %d\n", __FUNCTION__, m_iPartCount, entries);
-
-          if (times)
-          {
-            // the times array stores the end timestamps of the chapters, e.g., times[0] stores the position/beginning of chapter 2
-            m_mapTitleChapters[m_iTitle][1] = 0;
-            for (int i = 0; i < entries - 1; ++i)
-            {
-              m_mapTitleChapters[m_iTitle][i + 2] = times[i] / 90000;
-            }
-            m_dll.dvdnav_free(times);
-          }
-        }
-        CLog::Log(LOGDEBUG, "%s - Cell change: Title %d, Chapter %d\n", __FUNCTION__, m_iTitle, m_iPart);
-        CLog::Log(LOGDEBUG, "%s - At position %.0f%% inside the feature\n", __FUNCTION__, 100 * (double)pos / (double)len);
-        //Get total segment time
-
-        dvdnav_cell_change_event_t* cell_change_event = reinterpret_cast<dvdnav_cell_change_event_t*>(buf);
-        m_iCellStart = cell_change_event->cell_start; // store cell time as we need that for time later
-        m_iTime      = (int) (m_iCellStart / 90);
-        m_iTotalTime = (int) (cell_change_event->pgc_length / 90);
-
-        iNavresult = m_pVideoPlayer->OnDiscNavResult(buf, DVDNAV_CELL_CHANGE);
-      }
-      break;
+        iNavresult = process_block_DVDNAV_CELL_CHANGE(buf);
+	break;
 
     case DVDNAV_NAV_PACKET:
       {
