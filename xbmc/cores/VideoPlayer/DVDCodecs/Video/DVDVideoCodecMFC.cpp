@@ -50,11 +50,19 @@
 #define memzero(x) memset(&(x), 0, sizeof (x))
 
 
-union PtsReinterpreter
+static timeval pts2timeval(double pts)
 {
-  int32_t as_int32[2];
-  double as_double;
-};
+  int64_t pts_int = (int64_t)pts;
+  timeval tv;
+  tv.tv_sec = (time_t)(pts_int/1000000);
+  tv.tv_usec = (suseconds_t)(pts_int%1000000);
+  return tv;
+}
+static double timeval2pts(timeval tv)
+{
+  return (double)(int64_t(tv.tv_sec)*1000000 + tv.tv_usec);
+}
+
 
 #if DIRECT_RENDER_V4L2_BUFFERS
 
@@ -919,11 +927,7 @@ bool CMFCCodec::AddData(const DemuxPacket &packet) {
 
     memcpy((uint8_t *)m_V4l2BufferForNextData.cPlane[0], demuxer_content, demuxer_bytes);
     m_V4l2BufferForNextData.iBytesUsed[0] = demuxer_bytes;
-
-    PtsReinterpreter ptsconv;
-    ptsconv.as_double = pts;
-    m_V4l2BufferForNextData.timeStamp.tv_sec = ptsconv.as_int32[0];
-    m_V4l2BufferForNextData.timeStamp.tv_usec = ptsconv.as_int32[1];
+    m_V4l2BufferForNextData.timeStamp = pts2timeval(pts);
 
     CSingleLock lock(m_criticalSection);
     if (!m_MFCOutput->PushBuffer(&m_V4l2BufferForNextData)) {
@@ -1068,10 +1072,7 @@ void CMFCCodec::PumpBuffers() {
 
     if (m_codecControlFlags & DVD_CODEC_CTRL_DROP) {
       debug_log(LOGDEBUG, "%s::%s - dropping frame with index %d", CLASSNAME, __func__, picture.iIndex);
-      PtsReinterpreter ptsconv;
-      ptsconv.as_int32[0] = picture.timeStamp.tv_sec;
-      ptsconv.as_int32[1] = picture.timeStamp.tv_usec;
-      m_codecPts = ptsconv.as_double;
+      m_codecPts = timeval2pts(picture.timeStamp);
       m_droppedFrames++;
       // directly queue it back to MFC CAPTURE for re-usage since we are in an underrun condition
       debug_log(LOGDEBUG, "%s::%s - requeuing dropped picture %d to MFCCapture", CLASSNAME, __func__, picture.iIndex);
@@ -1122,24 +1123,18 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
 
   int *p_idx= &m_OutputPictures_first_used;
   int *p_idx_min= p_idx; 
-  PtsReinterpreter pts_min;
-  pts_min.as_int32[0] = m_OutputPictures[*p_idx_min].timeStamp.tv_sec;
-  pts_min.as_int32[1] = m_OutputPictures[*p_idx_min].timeStamp.tv_usec;
+  double pts_min = timeval2pts(m_OutputPictures[*p_idx_min].timeStamp);
 
   while ( -1 != *(p_idx = &m_OutputPictures[*p_idx].m_next))
   {
-    PtsReinterpreter pts;
-    pts.as_int32[0] = m_OutputPictures[*p_idx].timeStamp.tv_sec;
-    pts.as_int32[1] = m_OutputPictures[*p_idx].timeStamp.tv_usec;
+    double pts = timeval2pts(m_OutputPictures[*p_idx].timeStamp);
     
-    if (pts.as_double < pts_min.as_double)
+    if (pts < pts_min)
     {
       p_idx_min = p_idx;
       pts_min = pts;
     }
   }
-
-  m_codecPts = pts_min.as_double;
 
   // remove output picture from linked list of used buffers and
   // add to list of free buffers. 
@@ -1150,6 +1145,21 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   m_OutputPictures[idx_min].m_next = m_OutputPictures_first_free;
   m_OutputPictures_first_free = idx_min;
 
+  // -----------------------------------------
+  // HACK: ODROID-U3 specific!!!!
+  // limit frame rate of 1080p to 30Hz
+  //
+  if (m_finalFormat == V4L2_PIX_FMT_NV12MT // should only be in use on U3
+    && m_resultFormat.iWidth>=1920 && m_resultFormat.iHeight >= 1080 
+    && pts_min > m_codecPts && (pts_min - m_codecPts) < 30000)
+  {
+    ReturnBuffer(&m_OutputPictures[idx_min]);
+    m_preferAddData= 3; // next time, prefer VC_BUFFER return value
+    return CDVDVideoCodec::VC_NONE;
+  }
+  // -----------------------------------------
+
+  m_codecPts = pts_min;
 
   // now, fill *pDvdVideoPicture return value
 
@@ -1193,6 +1203,9 @@ void CMFCCodec::ReturnBuffer(V4l2SinkBuffer* pBuffer) {
   if (!success) {
     CLog::Log(LOGERROR, "%s::%s - Error returning buffer %d", CLASSNAME, __func__, pBuffer->iIndex);
     m_bCodecHealthy = false; // FIMC unrecoverable error, reset needed
+  }
+  else {
+    pBuffer->iIndex = -1;
   }
 }
 
