@@ -486,14 +486,14 @@ bool CMFCCodec::OpenDevices() {
                 m_iDecoderHandle = new V4l2Device;
                 m_iDecoderHandle->device = fd;
                 strcpy(m_iDecoderHandle->name, drivername);
-                CLog::Log(LOGDEBUG, "%s::%s - MFC Found %s %s", CLASSNAME, __func__, drivername, devname);
+                debug_log(LOGDEBUG, "%s::%s - MFC Found %s %s", CLASSNAME, __func__, drivername, devname);
                 struct v4l2_format fmt;
                 
                 memzero(fmt);
                 fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
                 fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12M;
                 if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
-                  CLog::Log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (NV12) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  debug_log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (NV12) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
                   delete m_iConverterHandle;
                   m_iConverterHandle = nullptr;
                   return true;
@@ -503,7 +503,7 @@ bool CMFCCodec::OpenDevices() {
                 fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
                 fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
                 if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
-                  CLog::Log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (YUV420) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  debug_log(LOGDEBUG, "%s::%s - Direct decoding to untiled picture (YUV420) on device %s is supported, no conversion needed", CLASSNAME, __func__, m_iDecoderHandle->name);
                   delete m_iConverterHandle;
                   m_iConverterHandle = nullptr;
                   return true;
@@ -514,7 +514,7 @@ bool CMFCCodec::OpenDevices() {
                 fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
                 fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_NV12MT;
                 if (ioctl(fd, VIDIOC_TRY_FMT, &fmt) == 0) {
-                  CLog::Log(LOGDEBUG, "%s::%s - Decoding to 62x32 tiled picture on device %s, disabling converter", CLASSNAME, __func__, m_iDecoderHandle->name);
+                  debug_log(LOGDEBUG, "%s::%s - Decoding to 62x32 tiled picture on device %s, disabling converter", CLASSNAME, __func__, m_iDecoderHandle->name);
                   delete m_iConverterHandle;
                   m_iConverterHandle = nullptr;
                   return true;
@@ -538,7 +538,7 @@ bool CMFCCodec::OpenDevices() {
                 m_iConverterHandle = new V4l2Device;
                 m_iConverterHandle->device = fd;
                 strcpy(m_iConverterHandle->name, drivername);
-                CLog::Log(LOGDEBUG, "%s::%s - FIMC Found %s %s", CLASSNAME, __func__, drivername, devname);
+                debug_log(LOGDEBUG, "%s::%s - FIMC Found %s %s", CLASSNAME, __func__, drivername, devname);
               }
           }
           if (!m_iConverterHandle)
@@ -961,7 +961,7 @@ void CMFCCodec::Reset() {
   m_codecControlFlags = 0;
 
   if (m_bCodecHealthy) {
-    CLog::Log(LOGINFO, "%s::%s - Codec Reset requested, but codec is healthy, doing soft-flush", CLASSNAME, __func__);
+    CLog::Log(LOGNOTICE, "%s::%s - Codec Reset requested, but codec is healthy, doing soft-flush", CLASSNAME, __func__);
     m_MFCOutput->SoftRestart();
     m_MFCCapture->SoftRestart();
     // give ready buffers back to V4L2
