@@ -52,15 +52,18 @@
 
 static timeval pts2timeval(double pts)
 {
-  int64_t pts_int = (int64_t)pts;
+  uint64_t pts_int = static_cast<uint64_t>(pts);
   timeval tv;
-  tv.tv_sec = (time_t)(pts_int/1000000);
-  tv.tv_usec = (suseconds_t)(pts_int%1000000);
+  tv.tv_sec = static_cast<time_t>(pts_int/1000000u);
+  tv.tv_usec = static_cast<suseconds_t>(pts_int%1000000u);
   return tv;
 }
 static double timeval2pts(timeval tv)
 {
-  return (double)(int64_t(tv.tv_sec)*1000000 + tv.tv_usec);
+  static const timeval TV_NOPTS = pts2timeval(static_cast<double>(DVD_NOPTS_VALUE));
+  if (TV_NOPTS.tv_sec == tv.tv_sec && TV_NOPTS.tv_usec == tv.tv_usec)
+    return static_cast<double>(DVD_NOPTS_VALUE);
+  return static_cast<double>(static_cast<uint64_t>(tv.tv_sec)*1000000u + tv.tv_usec);
 }
 
 
@@ -1119,7 +1122,10 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   }
 
   // if decoded output pictures are available, then find output picture with 
-  // lowest pts value
+  // lowest pts value.
+  // note that m_OutputPictures_first_used points to latest picture, so if
+  // all pts values are identical, we have to fully walk through the list to
+  // get the oldest picture
 
   int *p_idx= &m_OutputPictures_first_used;
   int *p_idx_min= p_idx; 
@@ -1129,7 +1135,7 @@ CDVDVideoCodec::VCReturn CMFCCodec::GetPicture(VideoPicture* pDvdVideoPicture) {
   {
     double pts = timeval2pts(m_OutputPictures[*p_idx].timeStamp);
     
-    if (pts < pts_min)
+    if (pts <= pts_min)
     {
       p_idx_min = p_idx;
       pts_min = pts;
