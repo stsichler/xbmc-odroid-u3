@@ -108,7 +108,11 @@ public:
   /*! \brief Toggle login screen use on and off
     Toggles the login screen state
     */
-  void ToggleLoginScreen() { m_usingLoginScreen = !m_usingLoginScreen; }
+  void ToggleLoginScreen()
+  {
+    m_usingLoginScreen = !m_usingLoginScreen;
+    Save();
+  }
 
   /*! \brief Are we the master user?
     \return true if the current profile is the master user, false otherwise
@@ -155,7 +159,11 @@ public:
     used profile will be loaded
     \return the id to the autologin profile
     */
-  void SetAutoLoginProfileId(const int profileId) { m_autoLoginProfile = profileId; }
+  void SetAutoLoginProfileId(const int profileId)
+  {
+    m_autoLoginProfile = profileId;
+    Save();
+  }
 
   /*! \brief Retrieve the name of a particular profile by index
     \param profileId profile index for which to retrieve the name
@@ -200,6 +208,7 @@ private:
   std::vector<CProfile> m_profiles;
   bool m_usingLoginScreen;
   bool m_profileLoadedForLogin;
+  bool m_previousProfileLoadedForLogin;
   int m_autoLoginProfile;
   unsigned int m_lastUsedProfile;
   unsigned int m_currentProfile; // do not modify directly, use SetCurrentProfileId() function instead

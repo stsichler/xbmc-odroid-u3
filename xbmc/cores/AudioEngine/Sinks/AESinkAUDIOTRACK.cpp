@@ -247,7 +247,6 @@ int CAESinkAUDIOTRACK::AudioTrackWrite(char* audioData, int sizeInBytes, int64_t
 CAEDeviceInfo CAESinkAUDIOTRACK::m_info;
 std::set<unsigned int> CAESinkAUDIOTRACK::m_sink_sampleRates;
 bool CAESinkAUDIOTRACK::m_sinkSupportsFloat = false;
-bool CAESinkAUDIOTRACK::m_sinkSupportsMultiChannelFloat = false;
 
 ////////////////////////////////////////////////////////////////////////////////////////////
 CAESinkAUDIOTRACK::CAESinkAUDIOTRACK()
@@ -328,7 +327,7 @@ bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
      }
   }
 
-  if (m_format.m_dataFormat == AE_FMT_RAW && !CXBMCApp::IsHeadsetPlugged())
+  if (m_format.m_dataFormat == AE_FMT_RAW)
   {
     m_passthrough = true;
     m_encoding = AEStreamFormatToATFormat(m_format.m_streamInfo.m_type);
@@ -378,12 +377,7 @@ bool CAESinkAUDIOTRACK::Initialize(AEAudioFormat &format, std::string &device)
   {
     m_passthrough = false;
     m_format.m_sampleRate     = m_sink_sampleRate;
-    if (m_sinkSupportsMultiChannelFloat)
-    {
-      m_encoding = CJNIAudioFormat::ENCODING_PCM_FLOAT;
-      m_format.m_dataFormat     = AE_FMT_FLOAT;
-    }
-    else if (m_sinkSupportsFloat && m_format.m_channelLayout.Count() == 2)
+    if (m_sinkSupportsFloat && m_format.m_channelLayout.Count() == 2)
     {
       m_encoding = CJNIAudioFormat::ENCODING_PCM_FLOAT;
       m_format.m_dataFormat     = AE_FMT_FLOAT;
@@ -872,11 +866,7 @@ void CAESinkAUDIOTRACK::EnumerateDevicesEx(AEDeviceInfoList &list, bool force)
   m_info.m_displayNameExtra = "audiotrack";
 
   UpdateAvailablePCMCapabilities();
-
-  if (!CXBMCApp::IsHeadsetPlugged())
-  {
-    UpdateAvailablePassthroughCapabilities();
-  }
+  UpdateAvailablePassthroughCapabilities();
   list.push_back(m_info);
 }
 
@@ -886,6 +876,17 @@ void CAESinkAUDIOTRACK::UpdateAvailablePassthroughCapabilities()
   m_info.m_wantsIECPassthrough = false;
   m_info.m_dataFormats.push_back(AE_FMT_RAW);
   m_info.m_streamTypes.clear();
+
+  // if hardware is amlogic but aml_present is false, means permissions are wrong in FW, we run on broken v23 firmware which should not have
+  // been sold to customers. Just add AC3 and return early
+  if (!aml_present() && (StringUtils::StartsWithNoCase(CJNIBuild::HARDWARE, "amlogic") &&
+                         CJNIAudioManager::GetSDKVersion() == 23))
+  {
+    m_info.m_streamTypes.push_back(CAEStreamInfo::STREAM_TYPE_AC3);
+    CLog::Log(LOGNOTICE, "AMLogic v23 broken FW workaround in place - only AC3 supported");
+    return;
+  }
+
   if (CJNIAudioFormat::ENCODING_AC3 != -1)
   {
     if (VerifySinkConfiguration(48000, CJNIAudioFormat::CHANNEL_OUT_STEREO, CJNIAudioFormat::ENCODING_AC3))
@@ -1002,20 +1003,12 @@ void CAESinkAUDIOTRACK::UpdateAvailablePCMCapabilities()
 
   int encoding = CJNIAudioFormat::ENCODING_PCM_16BIT;
   m_sinkSupportsFloat = VerifySinkConfiguration(native_sampleRate, CJNIAudioFormat::CHANNEL_OUT_STEREO, CJNIAudioFormat::ENCODING_PCM_FLOAT);
-  // Only try for Android 7 or later - there are a lot of old devices that open successfully
-  // but won't work correctly under the hood (famouse example: old FireTV)
-  if (CJNIAudioManager::GetSDKVersion() > 23)
-    m_sinkSupportsMultiChannelFloat = VerifySinkConfiguration(native_sampleRate, CJNIAudioFormat::CHANNEL_OUT_7POINT1_SURROUND, CJNIAudioFormat::ENCODING_PCM_FLOAT);
 
   if (m_sinkSupportsFloat)
   {
     encoding = CJNIAudioFormat::ENCODING_PCM_FLOAT;
     m_info.m_dataFormats.push_back(AE_FMT_FLOAT);
     CLog::Log(LOGNOTICE, "Float is supported");
-  }
-  if (m_sinkSupportsMultiChannelFloat)
-  {
-    CLog::Log(LOGNOTICE, "Multi channel Float is supported");
   }
 
   // Still AML API 21 and 22 get hardcoded samplerates - we can drop that

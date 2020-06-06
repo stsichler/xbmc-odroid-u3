@@ -577,7 +577,7 @@ void CXBMCApp::SetRefreshRate(float rate)
   {
     m_displayChangeEvent.WaitMSec(5000);
     if (m_hdmiSource && g_application.GetAppPlayer().IsPlaying())
-      dynamic_cast<CWinSystemAndroid*>(CServiceBroker::GetWinSystem())->SetHDMIState(false);
+      dynamic_cast<CWinSystemAndroid*>(CServiceBroker::GetWinSystem())->InitiateModeChange();
   }
 }
 
@@ -605,7 +605,7 @@ void CXBMCApp::SetDisplayMode(int mode, float rate)
   {
     m_displayChangeEvent.WaitMSec(5000);
     if (m_hdmiSource && g_application.GetAppPlayer().IsPlaying())
-      dynamic_cast<CWinSystemAndroid*>(CServiceBroker::GetWinSystem())->SetHDMIState(false);
+      dynamic_cast<CWinSystemAndroid*>(CServiceBroker::GetWinSystem())->InitiateModeChange();
   }
 }
 
@@ -1020,7 +1020,7 @@ void CXBMCApp::onReceive(CJNIIntent intent)
     {
       CWinSystemBase* winSystem = CServiceBroker::GetWinSystem();
       if (winSystem && dynamic_cast<CWinSystemAndroid*>(winSystem))
-        dynamic_cast<CWinSystemAndroid*>(winSystem)->SetHDMIState(m_hdmiPlugged);
+        dynamic_cast<CWinSystemAndroid*>(winSystem)->SetHdmiState(m_hdmiPlugged);
     }
   }
   else if (action == "android.intent.action.SCREEN_OFF")
@@ -1181,10 +1181,9 @@ int CXBMCApp::WaitForActivityResult(const CJNIIntent &intent, int requestCode, C
 
 void CXBMCApp::onVolumeChanged(int volume)
 {
-  // System volume was used; Reset Kodi volume to 100% if it isn't, already
-  if (g_application.GetVolume(false) != 1.0)
-    CApplicationMessenger::GetInstance().PostMsg(TMSG_GUI_ACTION, WINDOW_INVALID, -1, static_cast<void*>(
-                                                 new CAction(ACTION_VOLUME_SET, static_cast<float>(CXBMCApp::GetMaxSystemVolume()))));
+  // don't do anything. User wants to use kodi's internal volume freely while
+  // using the external volume to change it relatively
+  // See: https://forum.kodi.tv/showthread.php?tid=350764
 }
 
 void CXBMCApp::onAudioFocusChange(int focusChange)
